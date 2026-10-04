@@ -35,41 +35,79 @@
 
     <!-- ส่งเอกสาร -->
     <section id="tab-send">
-      <details class="card mb-4 p-4 text-sm open:pb-5">
-        <summary class="flex cursor-pointer list-none items-center gap-2 font-medium text-slate-700">
-          <span class="text-teal-600" data-icon="info"></span>รูปแบบรหัสเอกสารและการตั้งชื่อไฟล์
-          <span class="chev ml-auto text-slate-400 transition" data-icon="down" data-cls="h-4 w-4"></span>
-        </summary>
-        <div class="mt-3 space-y-3 text-slate-600">
-          <p>รหัสเอกสาร = <span class="font-mono">ประเภท-แผนก-เลขที่</span> เช่น <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-800">SD-QA-11.01</span></p>
-          <p>ตั้งชื่อไฟล์เป็น <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-800">SD-QA-11.01 Rev.03 แผนการ Swab Test.pdf</span> ระบบจะกรอกข้อมูลให้อัตโนมัติ</p>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div><p class="mb-1 text-xs font-semibold text-slate-400">ประเภทเอกสาร</p><ul id="type-list" class="space-y-0.5"></ul></div>
-            <div><p class="mb-1 text-xs font-semibold text-slate-400">รหัสแผนก</p><ul id="dept-list" class="space-y-0.5"></ul></div>
+      <ol id="stepper" class="mb-5 flex items-center gap-2 text-sm"></ol>
+
+      <!-- ขั้นที่ 1: โยนไฟล์ -->
+      <div id="step-file" class="fade-in">
+        <label id="big-drop" class="big-drop group flex min-h-[52vh] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-300 bg-white px-6 py-12 text-center transition">
+          <input type="file" id="file-input" class="sr-only">
+          <span class="flex h-20 w-20 items-center justify-center rounded-full bg-teal-50 text-teal-600 ring-8 ring-teal-50/50 transition group-hover:scale-105" data-icon="upload" data-cls="h-9 w-9"></span>
+          <span class="mt-6 text-xl font-semibold text-slate-800 sm:text-2xl">ลากไฟล์มาวางที่นี่</span>
+          <span class="mt-2 text-sm text-slate-500">หรือ</span>
+          <span class="btn btn-primary mt-3 !px-6 !py-2.5"><span data-icon="folder" data-cls="h-4 w-4"></span>เลือกไฟล์จากเครื่อง</span>
+          <span id="drop-hint" class="mt-5 text-xs text-slate-400"></span>
+        </label>
+
+        <details class="card mt-4 p-4 text-sm open:pb-5">
+          <summary class="flex cursor-pointer list-none items-center gap-2 font-medium text-slate-700">
+            <span class="text-teal-600" data-icon="info"></span>ตั้งชื่อไฟล์ตามรูปแบบ ระบบจะกรอกข้อมูลให้อัตโนมัติ
+            <span class="chev ml-auto text-slate-400 transition" data-icon="down" data-cls="h-4 w-4"></span>
+          </summary>
+          <div class="mt-3 space-y-3 text-slate-600">
+            <p>ตัวอย่างชื่อไฟล์ <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-800">SD-QA-11.01 Rev.03 แผนการ Swab Test.pdf</span></p>
+            <p>รหัสเอกสาร = <span class="font-mono">ประเภท-แผนก-เลขที่</span> เช่น <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-800">SD-QA-11.01</span></p>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div><p class="mb-1 text-xs font-semibold text-slate-400">ประเภทเอกสาร</p><ul id="type-list" class="space-y-0.5"></ul></div>
+              <div><p class="mb-1 text-xs font-semibold text-slate-400">รหัสแผนก</p><ul id="dept-list" class="space-y-0.5"></ul></div>
+            </div>
           </div>
+        </details>
+      </div>
+
+      <!-- ขั้นที่ 2: กรอกข้อมูล -->
+      <form id="send-form" class="hidden" novalidate>
+        <div class="card flex items-center gap-3 p-4">
+          <span id="file-icon"></span>
+          <div class="min-w-0 flex-1">
+            <p id="file-name" class="truncate text-sm font-medium text-slate-800"></p>
+            <p id="file-meta" class="text-xs text-slate-400"></p>
+          </div>
+          <button type="button" id="change-file" class="btn btn-ghost !px-3 !py-1.5 text-xs">เปลี่ยนไฟล์</button>
         </div>
-      </details>
+        <div id="autofill-note" class="mt-3 hidden items-center gap-2 rounded-xl bg-teal-50 px-4 py-2.5 text-sm text-teal-800"></div>
 
-      <form id="send-form" class="card p-5 sm:p-6" novalidate>
-        <h2 class="font-semibold text-slate-800">1. แนบไฟล์เอกสาร</h2>
-        <div class="mt-3" id="drop-wrap"></div>
+        <div class="card mt-4 p-5 sm:p-6">
+          <h2 class="font-semibold text-slate-800">ข้อมูลเอกสาร</h2>
+          <div class="mt-3" id="fields-wrap"></div>
 
-        <h2 class="mt-6 font-semibold text-slate-800">2. ข้อมูลเอกสาร</h2>
-        <div class="mt-3" id="fields-wrap"></div>
-
-        <h2 class="mt-6 font-semibold text-slate-800">3. ข้อมูลผู้ส่ง</h2>
-        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label><span class="label">ชื่อผู้ส่ง <span class="text-rose-500">*</span></span>
-            <input name="submitter" class="input" placeholder="ชื่อ-นามสกุล" required autocomplete="name"></label>
-          <label><span class="label">ช่องทางติดต่อกลับ</span>
-            <input name="contact" class="input" placeholder="อีเมล / เบอร์ภายใน / LINE"></label>
+          <h2 class="mt-7 font-semibold text-slate-800">ข้อมูลผู้ส่ง</h2>
+          <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label><span class="label">ชื่อผู้ส่ง <span class="text-rose-500">*</span></span>
+              <input name="submitter" class="input" placeholder="ชื่อ-นามสกุล" required autocomplete="name"></label>
+            <label><span class="label">ช่องทางติดต่อกลับ</span>
+              <input name="contact" class="input" placeholder="อีเมล / เบอร์ภายใน / LINE"></label>
+          </div>
+          <label class="mt-3 block"><span class="label">ข้อความถึงผู้ตรวจสอบ</span>
+            <textarea name="note" rows="2" class="input" placeholder="เช่น สรุปสิ่งที่แก้ไขใน Revision นี้"></textarea></label>
         </div>
-        <label class="mt-3 block"><span class="label">ข้อความถึงผู้ตรวจสอบ</span>
-          <textarea name="note" rows="2" class="input" placeholder="เช่น สรุปสิ่งที่แก้ไขใน Revision นี้"></textarea></label>
 
-        <button type="submit" class="btn btn-primary mt-6 w-full !py-3"><span data-icon="send" data-cls="h-4 w-4"></span>ส่งเอกสารเพื่อตรวจสอบ</button>
+        <div class="mt-4 flex gap-2">
+          <button type="button" id="back-btn" class="btn btn-ghost !py-3"><span data-icon="left" data-cls="h-4 w-4"></span>ย้อนกลับ</button>
+          <button type="submit" class="btn btn-primary flex-1 !py-3"><span data-icon="send" data-cls="h-4 w-4"></span>ส่งเอกสารเพื่อตรวจสอบ</button>
+        </div>
       </form>
+
+      <!-- ขั้นที่ 3: เสร็จสิ้น -->
+      <div id="step-done" class="hidden"></div>
     </section>
+
+    <!-- วางไฟล์ได้ทุกที่บนหน้า -->
+    <div id="page-drop" class="pointer-events-none fixed inset-0 z-[60] hidden items-center justify-center bg-teal-600/10 p-6 backdrop-blur-[1px]">
+      <div class="rounded-3xl border-2 border-dashed border-teal-400 bg-white/95 px-10 py-8 text-center shadow-xl">
+        <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-teal-50 text-teal-600" data-icon="upload" data-cls="h-7 w-7"></span>
+        <p class="mt-3 text-lg font-semibold text-slate-800">วางไฟล์เพื่อส่งเอกสาร</p>
+      </div>
+    </div>
 
     <!-- ติดตามสถานะ -->
     <section id="tab-status" class="hidden">

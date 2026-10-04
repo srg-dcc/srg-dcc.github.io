@@ -1,10 +1,14 @@
 /* =============================================================
  * submit.js — หน้าส่งเอกสารสำหรับผู้ใช้ทั่วไป (ไม่ต้องเข้าสู่ระบบ)
+ * Flow: 1) โยนไฟล์  →  2) กรอกข้อมูล  →  3) ส่งแล้ว
  * ============================================================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const MY_KEY = 'dc_my_submissions';
-let dropZone;
+const PARSED_FIELDS = ['docType', 'dept', 'docNo', 'rev', 'title'];
+let currentFile = null;
+let currentStep = 1;
+let updateCode = () => {};
 
 function hydrateIcons(root = document) {
   root.querySelectorAll('[data-icon]').forEach((el) => {
@@ -13,6 +17,7 @@ function hydrateIcons(root = document) {
   });
 }
 
+/* ---------------- Tabs ---------------- */
 function setTab(name) {
   document.querySelectorAll('.tab').forEach((b) => {
     const on = b.dataset.tab === name;
@@ -26,42 +31,135 @@ function setTab(name) {
   if (name === 'status') renderRecent();
 }
 
-function renderFormParts() {
-  $('#type-list').innerHTML = Object.entries(DOC_TYPES).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
-  $('#dept-list').innerHTML = Object.entries(DEPTS).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
-  $('#drop-wrap').innerHTML = dropZoneHtml('drop');
-  $('#fields-wrap').innerHTML = docFieldsHtml({ effectiveDate: '' });
+/* ---------------- Steps ---------------- */
+function renderStepper() {
+  const steps = ['เลือกไฟล์', 'กรอกข้อมูล', 'ส่งเรียบร้อย'];
+  $('#stepper').innerHTML = steps.map((label, i) => {
+    const n = i + 1;
+    const done = n < currentStep || currentStep === 3;
+    const on = n === currentStep;
+    const dot = done
+      ? `<span class="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-white">${icon('check', 'h-3.5 w-3.5')}</span>`
+      : `<span class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${on ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500'}">${n}</span>`;
+    return `<li class="flex items-center gap-2 ${on || done ? 'text-slate-800' : 'text-slate-400'}">${dot}<span class="${on ? 'font-semibold' : ''} ${on ? '' : 'hidden sm:inline'}">${label}</span></li>
+      ${n < steps.length ? `<li class="h-px flex-1 ${n < currentStep ? 'bg-teal-300' : 'bg-slate-200'}" aria-hidden="true"></li>` : ''}`;
+  }).join('');
 }
 
-function initForm() {
+function goStep(n) {
+  currentStep = n;
+  $('#step-file').classList.toggle('hidden', n !== 1);
+  $('#send-form').classList.toggle('hidden', n !== 2);
+  $('#step-done').classList.toggle('hidden', n !== 3);
+  const el = { 1: '#step-file', 2: '#send-form', 3: '#step-done' }[n];
+  $(el).classList.remove('fade-in');
+  void $(el).offsetWidth;
+  $(el).classList.add('fade-in');
+  renderStepper();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------------- รับไฟล์ ---------------- */
+function acceptFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (files.length > 1) toast('ส่งได้ครั้งละ 1 ไฟล์ ระบบเลือกไฟล์แรกให้', 'info');
+  const file = files[0];
+  const err = validateFile(file);
+  if (err) { toast(err, 'error'); return; }
+
   const form = $('#send-form');
-  const updateCode = bindDocFields(form);
-  dropZone = bindDropZone($('#drop'), (file) => {
-    if (autofillFromFileName(form, file.name)) {
-      updateCode();
-      toast('กรอกข้อมูลจากชื่อไฟล์ให้แล้ว กรุณาตรวจสอบความถูกต้อง', 'info');
-    }
+  // ไฟล์ใหม่ → ล้างข้อมูลที่เคยกรอกจากชื่อไฟล์เดิม แล้วกรอกใหม่
+  if (currentFile) PARSED_FIELDS.forEach((k) => { form.elements[k].value = ''; });
+  currentFile = file;
+
+  $('#file-icon').innerHTML = fileIcon(file.name);
+  $('#file-name').textContent = file.name;
+  $('#file-meta').textContent = formatSize(file.size);
+
+  const n = autofillFromFileName(form, file.name);
+  const ok = !!parseFileName(file.name).docType; // อ่านรหัสเอกสารจากชื่อไฟล์ได้หรือไม่
+  const note = $('#autofill-note');
+  note.innerHTML = ok
+    ? `${icon('check', 'h-4 w-4 shrink-0')}<span>กรอกข้อมูลจากชื่อไฟล์ให้แล้ว ${n} ช่อง กรุณาตรวจสอบความถูกต้อง</span>`
+    : `${icon('info', 'h-4 w-4 shrink-0')}<span>ชื่อไฟล์ไม่ตรงรูปแบบ (เช่น SD-QA-11.01 Rev.03 ชื่อเอกสาร.pdf) กรุณากรอกรหัสเอกสารด้านล่าง</span>`;
+  note.classList.remove('hidden');
+  note.classList.add('flex');
+  note.classList.toggle('bg-teal-50', ok);
+  note.classList.toggle('text-teal-800', ok);
+  note.classList.toggle('bg-amber-50', !ok);
+  note.classList.toggle('text-amber-800', !ok);
+  updateCode();
+
+  if (currentStep !== 2) goStep(2);
+  // โฟกัสช่องแรกที่ยังว่าง
+  const firstEmpty = [...form.querySelectorAll('input[required], select[required]')].find((el) => !el.value);
+  if (firstEmpty) setTimeout(() => firstEmpty.focus({ preventScroll: true }), 250);
+}
+
+function initDrop() {
+  const input = $('#file-input');
+  input.accept = ALLOWED_EXT.map((e) => '.' + e).join(',');
+  input.addEventListener('change', () => { acceptFiles(input.files); input.value = ''; });
+  const max = (window.APP_CONFIG && APP_CONFIG.MAX_FILE_MB) || 25;
+  $('#drop-hint').textContent = `รองรับ PDF, Word, Excel, PowerPoint และรูปภาพ · ไม่เกิน ${max} MB`;
+  $('#change-file').addEventListener('click', () => input.click());
+
+  // ลากไฟล์มาวางได้ทุกที่บนหน้า (ขั้นที่ 1 และ 2)
+  const big = $('#big-drop');
+  const overlay = $('#page-drop');
+  let depth = 0;
+  const canDrop = (e) => !$('#tab-send').classList.contains('hidden') && currentStep !== 3
+    && e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  const show = (on) => {
+    big.classList.toggle('dz-over', on && currentStep === 1);
+    const useOverlay = on && currentStep === 2;
+    overlay.classList.toggle('hidden', !useOverlay);
+    overlay.classList.toggle('flex', useOverlay);
+  };
+  document.addEventListener('dragenter', (e) => { if (!canDrop(e)) return; e.preventDefault(); depth++; show(true); });
+  document.addEventListener('dragover', (e) => { if (!canDrop(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  document.addEventListener('dragleave', (e) => { if (!canDrop(e)) return; depth = Math.max(0, depth - 1); if (!depth) show(false); });
+  document.addEventListener('drop', (e) => {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    depth = 0;
+    show(false);
+    acceptFiles(e.dataTransfer.files);
   });
+}
+
+/* ---------------- ฟอร์ม ---------------- */
+function initForm() {
+  $('#type-list').innerHTML = Object.entries(DOC_TYPES).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
+  $('#dept-list').innerHTML = Object.entries(DEPTS).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
+  $('#fields-wrap').innerHTML = docFieldsHtml({});
+
+  const form = $('#send-form');
+  updateCode = bindDocFields(form);
   const saved = storageGet('dc_submitter', {});
   if (saved.name) form.submitter.value = saved.name;
   if (saved.contact) form.contact.value = saved.contact;
+  $('#back-btn').addEventListener('click', () => goStep(1));
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const file = dropZone.getFile();
-    if (!file) { toast('กรุณาแนบไฟล์เอกสาร', 'error'); $('#drop').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (!currentFile) { goStep(1); return; }
     if (!form.reportValidity()) return;
     const btn = form.querySelector('button[type=submit]');
     setBusy(btn, true, 'กำลังอัปโหลด...');
     try {
-      const base64 = await fileToBase64(file);
+      const base64 = await fileToBase64(currentFile);
       const data = {
         ...readDocFields(form),
         submitter: form.submitter.value.trim(),
         contact: form.contact.value.trim(),
         note: form.note.value.trim(),
       };
-      const res = await API.call('submit', { data, file: { name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, base64 } });
+      const res = await API.call('submit', {
+        data,
+        file: { name: currentFile.name, mimeType: currentFile.type || 'application/octet-stream', size: currentFile.size, base64 },
+      });
       storageSet('dc_submitter', { name: data.submitter, contact: data.contact });
       const mine = storageGet(MY_KEY, []);
       mine.unshift({ refNo: res.refNo, code: `${buildCode(data.docType, data.dept, data.docNo)} Rev.${data.rev}`, at: new Date().toISOString() });
@@ -69,14 +167,23 @@ function initForm() {
       showSuccess(res.refNo, data);
     } catch (err) {
       toast(err.message, 'error');
+    } finally {
       setBusy(btn, false);
     }
   });
 }
 
+function resetForNext() {
+  const form = $('#send-form');
+  PARSED_FIELDS.concat(['effectiveDate', 'author', 'note']).forEach((k) => { form.elements[k].value = ''; });
+  currentFile = null;
+  updateCode();
+  goStep(1);
+}
+
 function showSuccess(refNo, d) {
-  $('#tab-send').innerHTML = `
-    <div class="card fade-in p-6 text-center sm:p-10">
+  $('#step-done').innerHTML = `
+    <div class="card p-6 text-center sm:p-10">
       <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">${icon('check', 'h-7 w-7')}</div>
       <h2 class="mt-4 text-lg font-semibold text-slate-800">ส่งเอกสารเรียบร้อยแล้ว</h2>
       <p class="mt-1 text-sm text-slate-500">${escapeHtml(buildCode(d.docType, d.dept, d.docNo))} Rev.${escapeHtml(d.rev)} · ${escapeHtml(d.title)}</p>
@@ -88,15 +195,21 @@ function showSuccess(refNo, d) {
       </div>
       <div class="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
         <button class="btn btn-ghost" id="go-status">ติดตามสถานะ</button>
-        <button class="btn btn-primary" id="send-another">${icon('send', 'h-4 w-4')}ส่งเอกสารอื่น</button>
+        <button class="btn btn-primary" id="send-another">${icon('upload', 'h-4 w-4')}ส่งเอกสารอื่น</button>
       </div>
     </div>`;
   $('#copy-ref').addEventListener('click', async () => { if (await copyText(refNo)) toast('คัดลอกเลขอ้างอิงแล้ว'); });
-  $('#go-status').addEventListener('click', () => { setTab('status'); $('#status-form').refNo.value = refNo; checkStatus(refNo); });
-  $('#send-another').addEventListener('click', () => location.reload());
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  $('#go-status').addEventListener('click', () => {
+    setTab('status');
+    $('#status-form').refNo.value = refNo;
+    checkStatus(refNo);
+    resetForNext();
+  });
+  $('#send-another').addEventListener('click', resetForNext);
+  goStep(3);
 }
 
+/* ---------------- ติดตามสถานะ ---------------- */
 function renderRecent() {
   const mine = storageGet(MY_KEY, []);
   const box = $('#status-result');
@@ -134,10 +247,11 @@ async function checkStatus(refNo) {
   }
 }
 
+/* ---------------- เริ่มต้น ---------------- */
 function init() {
-  hydrateIcons();
-  renderFormParts();
   initForm();
+  initDrop();
+  hydrateIcons();
   if (API.isDemo) $('#demo-note').classList.remove('hidden');
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#status-form').addEventListener('submit', (e) => {
@@ -149,6 +263,7 @@ function init() {
     const b = e.target.closest('[data-ref]');
     if (b) { $('#status-form').refNo.value = b.dataset.ref; checkStatus(b.dataset.ref); }
   });
+  goStep(1);
   const ref = new URLSearchParams(location.search).get('ref');
   if (ref) { setTab('status'); $('#status-form').refNo.value = ref; checkStatus(ref); } else setTab('send');
 }

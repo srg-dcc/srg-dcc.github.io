@@ -90,3 +90,6 @@ kbd { font-family: ui-monospace, monospace; font-size: .7rem; border-radius: .3r
 
 details > summary::-webkit-details-marker { display: none; }
 details[open] .chev { transform: rotate(180deg); }
+
+.big-drop:hover, .big-drop.dz-over { border-color: #5eead4; background: #f8fffd; }
+.big-drop.dz-over { box-shadow: 0 0 0 6px rgba(20, 184, 166, .08); }
