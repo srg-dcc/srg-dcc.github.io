@@ -1,0 +1,526 @@
+/**
+ * =============================================================
+ *  DocControl — Backend (Google Apps Script)
+ *  ไฟล์เก็บใน Google Drive / ข้อมูลเก็บใน Google Sheets
+ * -------------------------------------------------------------
+ *  วิธีติดตั้ง (ดูรายละเอียดใน README.md)
+ *   1. สร้างโปรเจกต์ใหม่ที่ https://script.google.com
+ *   2. วางโค้ดไฟล์นี้ลงใน Code.gs แล้วกด Save
+ *   3. เลือกฟังก์ชัน setup แล้วกด Run (อนุญาตสิทธิ์ครั้งแรก)
+ *   4. Deploy > New deployment > Web app
+ *        Execute as: Me  /  Who has access: Anyone
+ *   5. คัดลอก Web app URL ไปใส่ใน assets/js/config.js
+ * =============================================================
+ */
+
+const APP = {
+  ROOT_FOLDER: 'DocControl',
+  DEFAULT_PASSWORD: 'admin1234',
+  SESSION_SECONDS: 6 * 60 * 60, // อยู่ในระบบได้ 6 ชั่วโมง
+  MAX_FILE_MB: 25,
+};
+
+const DOC_TYPES = ['QP', 'WI', 'SD', 'FM'];
+const DEPTS = ['PD', 'QC', 'QA', 'MT', 'RD', 'HR', 'ST'];
+const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'];
+
+const T = {
+  DOCS: {
+    name: 'Documents',
+    headers: ['id', 'docCode', 'docType', 'dept', 'docNo', 'rev', 'title', 'effectiveDate', 'author', 'fileId', 'fileName',
+      'mimeType', 'fileSize', 'status', 'submitter', 'createdAt', 'updatedAt', 'submissionId', 'note'],
+  },
+  SUBS: {
+    name: 'Submissions',
+    headers: ['id', 'refNo', 'docCode', 'docType', 'dept', 'docNo', 'rev', 'title', 'effectiveDate', 'author', 'submitter', 'contact',
+      'fileId', 'fileName', 'mimeType', 'fileSize', 'status', 'submittedAt', 'reviewedAt', 'reviewNote', 'note'],
+  },
+  LOGS: { name: 'Logs', headers: ['time', 'action', 'docCode', 'rev', 'detail'] },
+};
+
+/* =============================================================
+ *  ฟังก์ชันสำหรับรันเองใน Apps Script Editor
+ * ============================================================= */
+
+/** รันครั้งแรกครั้งเดียว: สร้าง Spreadsheet, โฟลเดอร์ และรหัสผ่านเริ่มต้น */
+function setup() {
+  const props = PropertiesService.getScriptProperties();
+  const root = rootFolder_();
+  let ssId = props.getProperty('SPREADSHEET_ID');
+  if (!ssId) {
+    const ss = SpreadsheetApp.create('DocControl Database');
+    ssId = ss.getId();
+    props.setProperty('SPREADSHEET_ID', ssId);
+    DriveApp.getFileById(ssId).moveTo(root);
+  }
+  const ss = db_();
+  Object.keys(T).forEach((k) => sheet_(T[k]));
+  ss.getSheets().forEach((sh) => {
+    const known = Object.keys(T).some((k) => T[k].name === sh.getName());
+    if (!known && sh.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(sh);
+  });
+  folder_(root, '01 รอตรวจสอบ (Pending)');
+  folder_(root, '02 เอกสารใช้งาน (Active)');
+  folder_(root, '03 Rev เก่า (Obsolete)');
+  if (!props.getProperty('PASSWORD_HASH')) setPassword_(APP.DEFAULT_PASSWORD);
+  Logger.log('✅ ตั้งค่าเสร็จแล้ว');
+  Logger.log('📁 โฟลเดอร์: ' + root.getUrl());
+  Logger.log('📊 ฐานข้อมูล: ' + ss.getUrl());
+  Logger.log('🔑 รหัสผ่านเริ่มต้น: ' + APP.DEFAULT_PASSWORD + ' (กรุณาเปลี่ยนหลังเข้าสู่ระบบ)');
+}
+
+/** ใช้เมื่อลืมรหัสผ่าน: รีเซ็ตกลับเป็นรหัสผ่านเริ่มต้น */
+function resetPassword() {
+  setPassword_(APP.DEFAULT_PASSWORD);
+  Logger.log('รีเซ็ตรหัสผ่านเป็น ' + APP.DEFAULT_PASSWORD + ' แล้ว');
+}
+
+/* =============================================================
+ *  Web App entry points
+ * ============================================================= */
+
+function doGet() {
+  return out_({ ok: true, data: { service: 'DocControl API', time: now_() } });
+}
+
+function doPost(e) {
+  try {
+    const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    const action = String(req.action || '');
+    if (Object.prototype.hasOwnProperty.call(PUBLIC_ACTIONS, action)) {
+      return out_({ ok: true, data: PUBLIC_ACTIONS[action](req) });
+    }
+    if (Object.prototype.hasOwnProperty.call(ADMIN_ACTIONS, action)) {
+      requireAuth_(req.token);
+      return out_({ ok: true, data: ADMIN_ACTIONS[action](req) });
+    }
+    fail_('ไม่รู้จักคำสั่ง: ' + action);
+  } catch (err) {
+    return out_({ ok: false, error: err.message || String(err), code: err.code || 'ERROR' });
+  }
+}
+
+const PUBLIC_ACTIONS = {
+  ping: () => ({ time: now_() }),
+  login: login_,
+  submit: submit_,
+  checkStatus: checkStatus_,
+};
+
+const ADMIN_ACTIONS = {
+  bootstrap: bootstrap_,
+  approveSubmission: approveSubmission_,
+  rejectSubmission: rejectSubmission_,
+  addDocument: addDocument_,
+  updateDocument: updateDocument_,
+  deleteDocument: deleteDocument_,
+  getFile: getFile_,
+  shareFile: shareFile_,
+  changePassword: changePassword_,
+  logout: logout_,
+};
+
+/* =============================================================
+ *  Auth
+ * ============================================================= */
+
+function login_(req) {
+  const cache = CacheService.getScriptCache();
+  const attempts = Number(cache.get('login_fail') || 0);
+  if (attempts >= 5) fail_('ใส่รหัสผ่านผิดหลายครั้ง กรุณารอ 5 นาทีแล้วลองใหม่');
+  if (!checkPassword_(req.password)) {
+    cache.put('login_fail', String(attempts + 1), 300);
+    fail_('รหัสผ่านไม่ถูกต้อง');
+  }
+  cache.remove('login_fail');
+  const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+  cache.put('sess_' + token, '1', APP.SESSION_SECONDS);
+  return { token: token };
+}
+
+function logout_(req) {
+  CacheService.getScriptCache().remove('sess_' + req.token);
+  return true;
+}
+
+function requireAuth_(token) {
+  const cache = CacheService.getScriptCache();
+  if (!token || !cache.get('sess_' + token)) fail_('กรุณาเข้าสู่ระบบใหม่', 'AUTH');
+  cache.put('sess_' + token, '1', APP.SESSION_SECONDS); // ต่ออายุ session
+}
+
+function changePassword_(req) {
+  if (!checkPassword_(req.oldPassword)) fail_('รหัสผ่านเดิมไม่ถูกต้อง');
+  if (String(req.newPassword || '').length < 6) fail_('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+  setPassword_(req.newPassword);
+  return true;
+}
+
+function setPassword_(pw) {
+  const salt = Utilities.getUuid();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('PASSWORD_SALT', salt);
+  props.setProperty('PASSWORD_HASH', sha256_(salt + pw));
+}
+
+function checkPassword_(pw) {
+  const props = PropertiesService.getScriptProperties();
+  const hash = props.getProperty('PASSWORD_HASH');
+  if (!hash) fail_('ระบบยังไม่ได้ตั้งค่า กรุณารันฟังก์ชัน setup() ก่อน');
+  return sha256_(props.getProperty('PASSWORD_SALT') + String(pw || '')) === hash;
+}
+
+function sha256_(s) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8)
+    .map((b) => ('0' + ((b + 256) % 256).toString(16)).slice(-2)).join('');
+}
+
+/* =============================================================
+ *  Public: ส่งเอกสาร / ติดตามสถานะ
+ * ============================================================= */
+
+function submit_(req) {
+  const data = req.data || {};
+  const d = validateDoc_(data);
+  const submitter = str_(data.submitter);
+  if (!submitter) fail_('กรุณาระบุชื่อผู้ส่ง');
+  checkFile_(req.file);
+
+  return withLock_(() => {
+    if (readAll_(T.DOCS).some((x) => x.docCode === d.docCode && x.rev === d.rev)) {
+      fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' มีอยู่ในระบบแล้ว');
+    }
+    if (readAll_(T.SUBS).some((x) => x.status === 'Pending' && x.docCode === d.docCode && x.rev === d.rev)) {
+      fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' ถูกส่งมาแล้วและกำลังรอตรวจสอบ');
+    }
+    const file = saveFile_(req.file, folder_(rootFolder_(), '01 รอตรวจสอบ (Pending)'), req.file.name);
+    const refNo = 'SUB-' + Utilities.formatDate(new Date(), tz_(), 'yyMMdd') + '-' + Utilities.getUuid().slice(0, 4).toUpperCase();
+    insert_(T.SUBS, Object.assign({}, d, {
+      id: Utilities.getUuid(), refNo: refNo, submitter: submitter, contact: str_(data.contact),
+      fileId: file.getId(), fileName: req.file.name, mimeType: file.getMimeType(), fileSize: file.getSize(),
+      status: 'Pending', submittedAt: now_(), reviewedAt: '', reviewNote: '', note: str_(data.note),
+    }));
+    log_('SUBMIT', d.docCode, d.rev, 'ส่งโดย ' + submitter);
+    return { refNo: refNo };
+  });
+}
+
+function checkStatus_(req) {
+  const ref = str_(req.refNo).toUpperCase();
+  const s = readAll_(T.SUBS).find((x) => x.refNo.toUpperCase() === ref);
+  if (!ref || !s) fail_('ไม่พบเลขอ้างอิงนี้');
+  return {
+    refNo: s.refNo, docCode: s.docCode, rev: s.rev, title: s.title, status: s.status,
+    submittedAt: s.submittedAt, reviewedAt: s.reviewedAt, reviewNote: s.reviewNote,
+  };
+}
+
+/* =============================================================
+ *  Admin
+ * ============================================================= */
+
+function bootstrap_() {
+  return {
+    documents: readAll_(T.DOCS).map(clean_),
+    submissions: readAll_(T.SUBS).map(clean_),
+    logs: readLast_(T.LOGS, 40).reverse(),
+  };
+}
+
+function approveSubmission_(req) {
+  return withLock_(() => {
+    const sub = readAll_(T.SUBS).find((s) => s.id === req.id);
+    if (!sub) fail_('ไม่พบรายการ');
+    if (sub.status !== 'Pending') fail_('รายการนี้ถูกตรวจสอบไปแล้ว');
+    const d = validateDoc_(Object.assign({}, sub, req.data || {}));
+    dupCheck_(d);
+    const file = DriveApp.getFileById(sub.fileId);
+    file.setName(fileName_(d, sub.fileName));
+    file.moveTo(statusFolder_('Active', d.dept));
+    const t = now_();
+    const doc = Object.assign({}, d, {
+      id: Utilities.getUuid(), fileId: sub.fileId, fileName: file.getName(), mimeType: sub.mimeType, fileSize: sub.fileSize,
+      status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submissionId: sub.id, note: str_(req.note) || sub.note,
+    });
+    insert_(T.DOCS, doc);
+    update_(T.SUBS, sub, Object.assign({}, d, { status: 'Approved', reviewedAt: t, reviewNote: str_(req.note) }));
+    const replaced = recalcStatus_(d.docCode);
+    log_('APPROVE', d.docCode, d.rev, 'อนุมัติเอกสารจาก ' + sub.submitter);
+    return { document: doc, replaced: replaced };
+  });
+}
+
+function rejectSubmission_(req) {
+  const reason = str_(req.reason);
+  if (!reason) fail_('กรุณาระบุเหตุผล');
+  return withLock_(() => {
+    const sub = readAll_(T.SUBS).find((s) => s.id === req.id);
+    if (!sub) fail_('ไม่พบรายการ');
+    if (sub.status !== 'Pending') fail_('รายการนี้ถูกตรวจสอบไปแล้ว');
+    try { DriveApp.getFileById(sub.fileId).setTrashed(true); } catch (e) { /* ไฟล์อาจถูกลบไปแล้ว */ }
+    update_(T.SUBS, sub, { status: 'Rejected', reviewedAt: now_(), reviewNote: reason });
+    log_('REJECT', sub.docCode, sub.rev, reason);
+    return true;
+  });
+}
+
+function addDocument_(req) {
+  const d = validateDoc_(req.data || {});
+  checkFile_(req.file);
+  return withLock_(() => {
+    dupCheck_(d);
+    const file = saveFile_(req.file, statusFolder_('Active', d.dept), fileName_(d, req.file.name));
+    const t = now_();
+    const doc = Object.assign({}, d, {
+      id: Utilities.getUuid(), fileId: file.getId(), fileName: file.getName(), mimeType: file.getMimeType(), fileSize: file.getSize(),
+      status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submissionId: '', note: '',
+    });
+    insert_(T.DOCS, doc);
+    const replaced = recalcStatus_(d.docCode);
+    log_('ADD', d.docCode, d.rev, 'เพิ่มเอกสารโดยผู้ดูแล');
+    return { document: doc, replaced: replaced };
+  });
+}
+
+function updateDocument_(req) {
+  const d = validateDoc_(req.data || {});
+  return withLock_(() => {
+    const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
+    if (!doc) fail_('ไม่พบเอกสาร');
+    dupCheck_(d, doc.id);
+    const patch = Object.assign({}, d, { fileName: fileName_(d, doc.fileName), updatedAt: now_() });
+    try {
+      const file = DriveApp.getFileById(doc.fileId);
+      file.setName(patch.fileName);
+      if (d.dept !== doc.dept) file.moveTo(statusFolder_(doc.status, d.dept));
+    } catch (e) { /* ไม่พบไฟล์ใน Drive */ }
+    update_(T.DOCS, doc, patch);
+    recalcStatus_(doc.docCode);
+    if (doc.docCode !== d.docCode) recalcStatus_(d.docCode);
+    log_('UPDATE', d.docCode, d.rev, 'แก้ไขข้อมูลเอกสาร');
+    return { document: Object.assign(clean_(doc), patch) };
+  });
+}
+
+function deleteDocument_(req) {
+  return withLock_(() => {
+    const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
+    if (!doc) fail_('ไม่พบเอกสาร');
+    try { DriveApp.getFileById(doc.fileId).setTrashed(true); } catch (e) { /* ignore */ }
+    sheet_(T.DOCS).deleteRow(doc._row);
+    recalcStatus_(doc.docCode);
+    log_('DELETE', doc.docCode, doc.rev, 'ลบเอกสาร');
+    return true;
+  });
+}
+
+function getFile_(req) {
+  const list = req.kind === 'submission' ? readAll_(T.SUBS) : readAll_(T.DOCS);
+  const item = list.find((x) => x.id === req.id);
+  if (!item) fail_('ไม่พบไฟล์');
+  let file;
+  try { file = DriveApp.getFileById(item.fileId); } catch (e) { fail_('ไม่พบไฟล์ใน Google Drive'); }
+  const blob = file.getBlob();
+  if (req.kind !== 'submission' && req.log !== false) log_('DOWNLOAD', item.docCode, item.rev, item.fileName);
+  return { name: file.getName(), mimeType: blob.getContentType(), base64: Utilities.base64Encode(blob.getBytes()) };
+}
+
+function shareFile_(req) {
+  const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
+  if (!doc) fail_('ไม่พบเอกสาร');
+  const file = DriveApp.getFileById(doc.fileId);
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    fail_('ไม่สามารถเปิดแชร์ลิงก์ได้ (บัญชีองค์กรอาจไม่อนุญาตให้แชร์ภายนอก)');
+  }
+  log_('SHARE', doc.docCode, doc.rev, 'สร้างลิงก์แชร์');
+  return { url: 'https://drive.google.com/file/d/' + doc.fileId + '/view?usp=sharing' };
+}
+
+/* =============================================================
+ *  Business logic
+ * ============================================================= */
+
+function validateDoc_(src) {
+  const d = {
+    docType: str_(src.docType).toUpperCase(),
+    dept: str_(src.dept).toUpperCase(),
+    docNo: str_(src.docNo),
+    rev: pad2_(src.rev),
+    title: str_(src.title),
+    effectiveDate: str_(src.effectiveDate),
+    author: str_(src.author),
+  };
+  if (DOC_TYPES.indexOf(d.docType) < 0) fail_('ประเภทเอกสารไม่ถูกต้อง');
+  if (DEPTS.indexOf(d.dept) < 0) fail_('รหัสแผนกไม่ถูกต้อง');
+  if (!/^\d{2,3}(\.\d{2,3})?$/.test(d.docNo)) fail_('เลขที่เอกสารไม่ถูกต้อง (เช่น 01 หรือ 11.01)');
+  if (!d.rev) fail_('กรุณาระบุ Revision');
+  if (!d.title) fail_('กรุณาระบุชื่อเอกสาร');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.effectiveDate)) fail_('กรุณาระบุวันที่บังคับใช้');
+  if (!d.author) fail_('กรุณาระบุผู้จัดทำ');
+  d.docCode = d.docType + '-' + d.dept + '-' + d.docNo;
+  return d;
+}
+
+function dupCheck_(d, exceptId) {
+  if (readAll_(T.DOCS).some((x) => x.docCode === d.docCode && x.rev === d.rev && x.id !== exceptId)) {
+    fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' มีอยู่ในระบบแล้ว');
+  }
+}
+
+/** ให้ Rev สูงสุดของรหัสเอกสารเป็น Active ที่เหลือเป็น Obsolete และย้ายไฟล์ให้ตรงโฟลเดอร์ */
+function recalcStatus_(code) {
+  const list = readAll_(T.DOCS).filter((d) => d.docCode === code);
+  if (!list.length) return [];
+  const max = Math.max.apply(null, list.map((d) => Number(d.rev)));
+  const replaced = [];
+  list.forEach((d) => {
+    const st = Number(d.rev) === max ? 'Active' : 'Obsolete';
+    if (d.status === st) return;
+    if (st === 'Obsolete') replaced.push(d.rev);
+    update_(T.DOCS, d, { status: st, updatedAt: now_() });
+    try { DriveApp.getFileById(d.fileId).moveTo(statusFolder_(st, d.dept)); } catch (e) { /* ignore */ }
+  });
+  return replaced;
+}
+
+function fileName_(d, original) {
+  const m = String(original || '').match(/\.([^.]+)$/);
+  const safeTitle = d.title.replace(/[\\/:*?"<>|]/g, ' ');
+  return d.docCode + ' Rev.' + d.rev + ' ' + safeTitle + (m ? '.' + m[1].toLowerCase() : '');
+}
+
+function checkFile_(f) {
+  if (!f || !f.name || !f.base64) fail_('กรุณาแนบไฟล์');
+  const ext = (String(f.name).match(/\.([^.]+)$/) || [])[1];
+  if (!ext || ALLOWED_EXT.indexOf(ext.toLowerCase()) < 0) fail_('ไม่รองรับไฟล์ประเภทนี้');
+  if (f.base64.length * 0.75 > APP.MAX_FILE_MB * 1024 * 1024) fail_('ไฟล์ใหญ่เกิน ' + APP.MAX_FILE_MB + ' MB');
+}
+
+function saveFile_(f, folder, name) {
+  const bytes = Utilities.base64Decode(f.base64);
+  const blob = Utilities.newBlob(bytes, f.mimeType || 'application/octet-stream', name);
+  return folder.createFile(blob);
+}
+
+/* =============================================================
+ *  Drive helpers
+ * ============================================================= */
+
+function rootFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('ROOT_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* ถูกลบไป สร้างใหม่ */ }
+  }
+  const f = DriveApp.createFolder(APP.ROOT_FOLDER);
+  props.setProperty('ROOT_FOLDER_ID', f.getId());
+  return f;
+}
+
+function folder_(parent, name) {
+  const it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+function statusFolder_(status, dept) {
+  const base = status === 'Active' ? '02 เอกสารใช้งาน (Active)' : '03 Rev เก่า (Obsolete)';
+  return folder_(folder_(rootFolder_(), base), dept);
+}
+
+/* =============================================================
+ *  Sheet helpers (เก็บทุกค่าเป็นข้อความ เพื่อไม่ให้ Sheets แปลง 03 เป็น 3)
+ * ============================================================= */
+
+let SS_CACHE_ = null;
+function db_() {
+  if (!SS_CACHE_) {
+    const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+    if (!id) fail_('ระบบยังไม่ได้ตั้งค่า กรุณารันฟังก์ชัน setup() ใน Apps Script ก่อน');
+    SS_CACHE_ = SpreadsheetApp.openById(id);
+  }
+  return SS_CACHE_;
+}
+
+function sheet_(t) {
+  let sh = db_().getSheetByName(t.name);
+  if (!sh) {
+    sh = db_().insertSheet(t.name);
+    sh.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#f1f5f9');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function readAll_(t) {
+  const sh = sheet_(t);
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return [];
+  return sh.getRange(2, 1, n, t.headers.length).getDisplayValues().map((r, i) => {
+    const o = { _row: i + 2 };
+    t.headers.forEach((h, j) => { o[h] = r[j]; });
+    return o;
+  });
+}
+
+function readLast_(t, count) {
+  const sh = sheet_(t);
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const start = Math.max(2, last - count + 1);
+  return sh.getRange(start, 1, last - start + 1, t.headers.length).getDisplayValues().map((r) => {
+    const o = {};
+    t.headers.forEach((h, j) => { o[h] = r[j]; });
+    return o;
+  });
+}
+
+function writeRow_(t, row, obj) {
+  const vals = t.headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])));
+  sheet_(t).getRange(row, 1, 1, t.headers.length).setNumberFormat('@').setValues([vals]);
+}
+
+function insert_(t, obj) {
+  writeRow_(t, sheet_(t).getLastRow() + 1, obj);
+}
+
+function update_(t, current, patch) {
+  Object.assign(current, patch);
+  writeRow_(t, current._row, current);
+}
+
+function log_(action, docCode, rev, detail) {
+  insert_(T.LOGS, { time: now_(), action: action, docCode: docCode, rev: rev, detail: detail });
+}
+
+/* =============================================================
+ *  Utils
+ * ============================================================= */
+
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) fail_('ระบบกำลังทำงานอยู่ กรุณาลองใหม่อีกครั้ง');
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function fail_(msg, code) {
+  const e = new Error(msg);
+  e.code = code || 'ERROR';
+  throw e;
+}
+
+function out_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function clean_(o) {
+  const c = Object.assign({}, o);
+  delete c._row;
+  return c;
+}
+
+function str_(v) { return v === undefined || v === null ? '' : String(v).trim(); }
+function pad2_(v) { const n = String(v === undefined || v === null ? '' : v).replace(/\D/g, ''); return n ? ('0' + n).slice(-2) : ''; }
+function tz_() { return Session.getScriptTimeZone() || 'Asia/Bangkok'; }
+function now_() { return Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd'T'HH:mm:ss"); }
