@@ -110,14 +110,18 @@ const MockAPI = (() => {
       effectiveDate: '2026-11-01', author: s.submitter, fileId: '', fileName: `${s.docType}-${s.dept}-${s.docNo} Rev.${s.rev} ${s.title}.pdf`,
       mimeType: 'application/pdf', fileSize: '284311', status: 'Pending', submittedAt: t, reviewedAt: '', reviewNote: '', note: i === 1 ? 'ปรับรอบความถี่การ Swab จาก 1 เดือนเป็น 2 สัปดาห์' : '',
     }));
-    const db = { docs, subs, logs: [], password: 'admin1234' };
+    const db = { docs, subs, logs: [], password: 'admin1234', options: DEFAULT_OPTIONS.map((o) => ({ ...o })) };
     recalc(db, 'SD-QA-11.01');
     db.logs.push({ time: t, action: 'SUBMIT', docCode: subs[0].docCode, rev: '01', detail: `ส่งโดย ${subs[0].submitter}` });
     db.logs.push({ time: t, action: 'SUBMIT', docCode: subs[1].docCode, rev: '04', detail: `ส่งโดย ${subs[1].submitter}` });
     return db;
   }
 
-  const load = () => storageGet(KEY) || (() => { const d = seed(); storageSet(KEY, d); return d; })();
+  const load = () => {
+    const db = storageGet(KEY) || (() => { const d = seed(); storageSet(KEY, d); return d; })();
+    if (!db.options) db.options = DEFAULT_OPTIONS.map((o) => ({ ...o })); // ข้อมูลทดลองรุ่นเก่า
+    return db;
+  };
   const save = (db) => storageSet(KEY, db);
   const files = () => storageGet(FILE_KEY, {});
   const log = (db, action, docCode, rev, detail) => db.logs.push({ time: now(), action, docCode, rev, detail });
@@ -132,7 +136,9 @@ const MockAPI = (() => {
     return id;
   }
 
-  function validateDoc(d) {
+  const optActive = (o) => !(o.active === false || o.active === 'false');
+
+  function validateDoc(db, d, requireActive = false) {
     const out = {
       docType: String(d.docType || '').toUpperCase(),
       dept: String(d.dept || '').toUpperCase(),
@@ -142,8 +148,9 @@ const MockAPI = (() => {
       effectiveDate: String(d.effectiveDate || '').trim(),
       author: String(d.author || '').trim(),
     };
-    if (!DOC_TYPES[out.docType]) fail('ประเภทเอกสารไม่ถูกต้อง');
-    if (!DEPTS[out.dept]) fail('รหัสแผนกไม่ถูกต้อง');
+    const has = (kind, code) => db.options.some((o) => o.kind === kind && o.code === code && (!requireActive || optActive(o)));
+    if (!has('type', out.docType)) fail('ประเภทเอกสารไม่ถูกต้อง หรือถูกปิดใช้งาน');
+    if (!has('dept', out.dept)) fail('รหัสแผนกไม่ถูกต้อง หรือถูกปิดใช้งาน');
     if (!DOC_NO_RE.test(out.docNo)) fail('เลขที่เอกสารไม่ถูกต้อง (เช่น 01 หรือ 11.01)');
     if (!out.rev) fail('กรุณาระบุ Revision');
     if (!out.title) fail('กรุณาระบุชื่อเอกสาร');
@@ -185,6 +192,39 @@ const MockAPI = (() => {
   const actions = {
     ping: () => ({ demo: true }),
 
+    getOptions: () => load().options,
+
+    saveOption(req) {
+      auth(req);
+      const db = load();
+      const o = req.option || {};
+      const kind = o.kind === 'type' ? 'type' : o.kind === 'dept' ? 'dept' : fail('ประเภทตัวเลือกไม่ถูกต้อง');
+      const code = String(o.code || '').trim().toUpperCase();
+      if (!OPTION_CODE_RE.test(code)) fail('รหัสต้องเป็นตัวอักษรภาษาอังกฤษ 2-4 ตัว');
+      const name = String(o.name || '').trim();
+      if (!name) fail('กรุณาระบุชื่อ');
+      const row = { kind, code, name, th: String(o.th || '').trim(), color: kind === 'type' ? (COLORS[o.color] ? o.color : 'slate') : '', active: o.active !== false };
+      const i = db.options.findIndex((x) => x.kind === kind && x.code === code);
+      if (req.isNew && i >= 0) fail(`รหัส ${code} มีอยู่แล้ว`);
+      if (!req.isNew && i < 0) fail('ไม่พบตัวเลือกนี้');
+      if (i >= 0) db.options[i] = row; else db.options.push(row);
+      log(db, 'SETTING', code, '', `${req.isNew ? 'เพิ่ม' : 'แก้ไข'}${kind === 'type' ? 'ประเภทเอกสาร' : 'แผนก'} ${code}`);
+      save(db);
+      return db.options;
+    },
+
+    deleteOption(req) {
+      auth(req);
+      const db = load();
+      const field = req.kind === 'type' ? 'docType' : 'dept';
+      const used = db.docs.filter((d) => d[field] === req.code).length + db.subs.filter((d) => d[field] === req.code).length;
+      if (used) fail(`มีเอกสาร ${used} รายการใช้รหัส ${req.code} อยู่ ลบไม่ได้ (ใช้ "ปิดใช้งาน" แทน)`);
+      db.options = db.options.filter((o) => !(o.kind === req.kind && o.code === req.code));
+      log(db, 'SETTING', req.code, '', `ลบ${req.kind === 'type' ? 'ประเภทเอกสาร' : 'แผนก'} ${req.code}`);
+      save(db);
+      return db.options;
+    },
+
     login(req) {
       const db = load();
       if (req.password !== db.password) fail('รหัสผ่านไม่ถูกต้อง');
@@ -195,7 +235,7 @@ const MockAPI = (() => {
 
     submit(req) {
       const db = load();
-      const d = validateDoc(req.data || {});
+      const d = validateDoc(db, req.data || {}, true);
       if (!String(req.data.submitter || '').trim()) fail('กรุณาระบุชื่อผู้ส่ง');
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
       if (db.docs.some((x) => x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
@@ -221,7 +261,7 @@ const MockAPI = (() => {
     bootstrap(req) {
       auth(req);
       const db = load();
-      return { documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), demo: true };
+      return { documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), options: db.options, demo: true };
     },
 
     approveSubmission(req) {
@@ -230,7 +270,7 @@ const MockAPI = (() => {
       const sub = db.subs.find((s) => s.id === req.id);
       if (!sub) fail('ไม่พบรายการ');
       if (sub.status !== 'Pending') fail('รายการนี้ถูกตรวจสอบไปแล้ว');
-      const d = validateDoc({ ...sub, ...(req.data || {}) });
+      const d = validateDoc(db, { ...sub, ...(req.data || {}) });
       dupCheck(db, d);
       const t = now();
       const doc = {
@@ -261,7 +301,7 @@ const MockAPI = (() => {
     addDocument(req) {
       auth(req);
       const db = load();
-      const d = validateDoc(req.data || {});
+      const d = validateDoc(db, req.data || {});
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
       dupCheck(db, d);
       const t = now();
@@ -281,7 +321,7 @@ const MockAPI = (() => {
       const db = load();
       const doc = db.docs.find((x) => x.id === req.id);
       if (!doc) fail('ไม่พบเอกสาร');
-      const d = validateDoc(req.data || {});
+      const d = validateDoc(db, req.data || {});
       dupCheck(db, d, doc.id);
       const oldCode = doc.docCode;
       Object.assign(doc, d, { fileName: fileName(d, doc.fileName), updatedAt: now() });

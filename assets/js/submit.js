@@ -9,6 +9,7 @@ const PARSED_FIELDS = ['docType', 'dept', 'docNo', 'rev', 'title'];
 let currentFile = null;
 let currentStep = 1;
 let updateCode = () => {};
+let formReady = Promise.resolve();
 
 function hydrateIcons(root = document) {
   root.querySelectorAll('[data-icon]').forEach((el) => {
@@ -60,8 +61,9 @@ function goStep(n) {
 }
 
 /* ---------------- รับไฟล์ ---------------- */
-function acceptFiles(fileList) {
-  const files = Array.from(fileList || []);
+async function acceptFiles(fileList) {
+  const files = Array.from(fileList || []); // คัดลอกก่อน เพราะ input จะถูกล้างค่า
+  await formReady; // รอโหลดรายการแผนก/ประเภทให้เสร็จก่อน
   if (!files.length) return;
   if (files.length > 1) toast('ส่งได้ครั้งละ 1 ไฟล์ ระบบเลือกไฟล์แรกให้', 'info');
   const file = files[0];
@@ -131,8 +133,8 @@ function initDrop() {
 
 /* ---------------- ฟอร์ม ---------------- */
 function initForm() {
-  $('#type-list').innerHTML = Object.entries(DOC_TYPES).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
-  $('#dept-list').innerHTML = Object.entries(DEPTS).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
+  $('#type-list').innerHTML = Object.entries(DOC_TYPES).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
+  $('#dept-list').innerHTML = Object.entries(DEPTS).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
   $('#fields-wrap').innerHTML = docFieldsHtml({});
 
   const form = $('#send-form');
@@ -248,10 +250,18 @@ async function checkStatus(refNo) {
 }
 
 /* ---------------- เริ่มต้น ---------------- */
+async function loadOptions() {
+  try {
+    applyOptions(await API.call('getOptions'));
+  } catch (e) {
+    /* ใช้ค่าเริ่มต้นใน common.js แทน */
+  }
+}
+
 function init() {
-  initForm();
   initDrop();
   hydrateIcons();
+  formReady = loadOptions().then(() => { initForm(); hydrateIcons(); });
   if (API.isDemo) $('#demo-note').classList.remove('hidden');
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#status-form').addEventListener('submit', (e) => {

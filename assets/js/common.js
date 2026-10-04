@@ -2,22 +2,67 @@
  * common.js — ค่าคงที่และฟังก์ชันที่ใช้ร่วมกันทุกหน้า
  * ============================================================= */
 
-const DOC_TYPES = {
-  QP: { name: 'Quality Procedure', th: 'ระเบียบปฏิบัติ', badge: 'bg-indigo-50 text-indigo-700 ring-indigo-200', bar: 'bg-indigo-400' },
-  WI: { name: 'Work Instruction', th: 'วิธีปฏิบัติงาน', badge: 'bg-sky-50 text-sky-700 ring-sky-200', bar: 'bg-sky-400' },
-  SD: { name: 'Supporting Document', th: 'เอกสารสนับสนุน', badge: 'bg-teal-50 text-teal-700 ring-teal-200', bar: 'bg-teal-400' },
-  FM: { name: 'Form', th: 'แบบฟอร์ม', badge: 'bg-amber-50 text-amber-700 ring-amber-200', bar: 'bg-amber-400' },
+/* ---------- ตัวเลือก (แผนก / ประเภทเอกสาร) ----------
+ * ค่าเริ่มต้นด้านล่างใช้เมื่อยังโหลดจาก Server ไม่ได้
+ * ตัวเลือกจริงจัดการได้ที่หน้า "ตั้งค่า" ในระบบ (เก็บใน Google Sheets ชีต Options)
+ */
+const COLORS = {
+  indigo: { label: 'คราม', badge: 'bg-indigo-50 text-indigo-700 ring-indigo-200', bar: 'bg-indigo-400' },
+  sky: { label: 'ฟ้า', badge: 'bg-sky-50 text-sky-700 ring-sky-200', bar: 'bg-sky-400' },
+  teal: { label: 'เขียวน้ำทะเล', badge: 'bg-teal-50 text-teal-700 ring-teal-200', bar: 'bg-teal-400' },
+  amber: { label: 'เหลืองอำพัน', badge: 'bg-amber-50 text-amber-700 ring-amber-200', bar: 'bg-amber-400' },
+  rose: { label: 'ชมพูแดง', badge: 'bg-rose-50 text-rose-700 ring-rose-200', bar: 'bg-rose-400' },
+  violet: { label: 'ม่วง', badge: 'bg-violet-50 text-violet-700 ring-violet-200', bar: 'bg-violet-400' },
+  emerald: { label: 'เขียว', badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200', bar: 'bg-emerald-400' },
+  orange: { label: 'ส้ม', badge: 'bg-orange-50 text-orange-700 ring-orange-200', bar: 'bg-orange-400' },
+  pink: { label: 'ชมพู', badge: 'bg-pink-50 text-pink-700 ring-pink-200', bar: 'bg-pink-400' },
+  lime: { label: 'เขียวมะนาว', badge: 'bg-lime-50 text-lime-700 ring-lime-200', bar: 'bg-lime-500' },
+  cyan: { label: 'ฟ้าอมเขียว', badge: 'bg-cyan-50 text-cyan-700 ring-cyan-200', bar: 'bg-cyan-400' },
+  slate: { label: 'เทา', badge: 'bg-slate-100 text-slate-700 ring-slate-300', bar: 'bg-slate-400' },
 };
 
-const DEPTS = {
-  PD: { name: 'Production', th: 'ฝ่ายผลิต' },
-  QC: { name: 'Quality Control', th: 'ฝ่ายควบคุมคุณภาพ' },
-  QA: { name: 'Quality Assurance', th: 'ฝ่ายประกันคุณภาพ' },
-  MT: { name: 'Maintenance', th: 'ฝ่ายซ่อมบำรุง' },
-  RD: { name: 'Research and Development', th: 'ฝ่ายวิจัยและพัฒนา' },
-  HR: { name: 'Human Resource', th: 'ฝ่ายบุคคล' },
-  ST: { name: 'Store', th: 'ฝ่ายคลังสินค้า' },
-};
+const DEFAULT_OPTIONS = [
+  { kind: 'type', code: 'QP', name: 'Quality Procedure', th: 'ระเบียบปฏิบัติ', color: 'indigo', active: true },
+  { kind: 'type', code: 'WI', name: 'Work Instruction', th: 'วิธีปฏิบัติงาน', color: 'sky', active: true },
+  { kind: 'type', code: 'SD', name: 'Supporting Document', th: 'เอกสารสนับสนุน', color: 'teal', active: true },
+  { kind: 'type', code: 'FM', name: 'Form', th: 'แบบฟอร์ม', color: 'amber', active: true },
+  { kind: 'dept', code: 'PD', name: 'Production', th: 'ฝ่ายผลิต', active: true },
+  { kind: 'dept', code: 'QC', name: 'Quality Control', th: 'ฝ่ายควบคุมคุณภาพ', active: true },
+  { kind: 'dept', code: 'QA', name: 'Quality Assurance', th: 'ฝ่ายประกันคุณภาพ', active: true },
+  { kind: 'dept', code: 'MT', name: 'Maintenance', th: 'ฝ่ายซ่อมบำรุง', active: true },
+  { kind: 'dept', code: 'RD', name: 'Research and Development', th: 'ฝ่ายวิจัยและพัฒนา', active: true },
+  { kind: 'dept', code: 'HR', name: 'Human Resource', th: 'ฝ่ายบุคคล', active: true },
+  { kind: 'dept', code: 'ST', name: 'Store', th: 'ฝ่ายคลังสินค้า', active: true },
+];
+
+// อ็อบเจกต์เหล่านี้ถูกเติมค่าใหม่โดย applyOptions() (ห้าม reassign เพราะไฟล์อื่นอ้างอิงอยู่)
+const DOC_TYPES = {};
+const DEPTS = {};
+const OPTION_CODE_RE = /^[A-Z]{2,4}$/;
+
+function applyOptions(list) {
+  const rows = (list && list.length ? list : DEFAULT_OPTIONS).map((o) => ({
+    ...o,
+    code: String(o.code).toUpperCase(),
+    active: !(o.active === false || o.active === 'false' || o.active === 'FALSE'),
+  }));
+  [DOC_TYPES, DEPTS].forEach((obj) => Object.keys(obj).forEach((k) => delete obj[k]));
+  rows.forEach((o) => {
+    if (o.kind === 'type') {
+      const c = COLORS[o.color] || COLORS.slate;
+      DOC_TYPES[o.code] = { name: o.name, th: o.th, color: COLORS[o.color] ? o.color : 'slate', badge: c.badge, bar: c.bar, active: o.active };
+    } else if (o.kind === 'dept') {
+      DEPTS[o.code] = { name: o.name, th: o.th, active: o.active };
+    }
+  });
+}
+applyOptions(DEFAULT_OPTIONS);
+
+/** รายการตัวเลือกในรูปแบบ array (ใช้ส่งไป Server / แสดงในหน้าตั้งค่า) */
+function optionList(kind) {
+  const obj = kind === 'type' ? DOC_TYPES : DEPTS;
+  return Object.entries(obj).map(([code, v]) => ({ kind, code, ...v }));
+}
 
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'];
 const DOC_NO_RE = /^\d{2,3}(\.\d{2,3})?$/;
@@ -32,24 +77,25 @@ function buildCode(type, dept, no) {
   return [type, dept, no].filter(Boolean).join('-');
 }
 
-/** แยกข้อมูลจากชื่อไฟล์ เช่น "SD-QA-11.01 Rev.03 แผนการ Swab Test.pdf" */
+/** แยกข้อมูลจากชื่อไฟล์ เช่น "SD-QA-11.01 Rev.03 แผนการ Swab Test.pdf" (รองรับแผนก/ประเภทที่เพิ่มใหม่) */
 function parseFileName(fileName) {
   const out = {};
   const base = String(fileName || '').replace(/\.[^.]+$/, '');
-  const codeRe = /\b(QP|WI|SD|FM)[\s_-]*(PD|QC|QA|MT|RD|HR|ST)[\s_-]*(\d{2,3}(?:\.\d{2,3})?)/i;
-  const revRe = /\bRev(?:ision)?[\s._-]*(\d{1,2})\b/i;
-  const m = base.match(codeRe);
+  const alt = (obj) => Object.keys(obj).sort((a, b) => b.length - a.length).join('|');
+  const codeRe = new RegExp(`(?:^|[^A-Za-z])(${alt(DOC_TYPES)})[\\s_-]*(${alt(DEPTS)})[\\s_-]*(\\d{2,3}(?:\\.\\d{2,3})?)`, 'i');
+  const revRe = /(?:^|[^A-Za-z])(Rev(?:ision)?[\s._-]*(\d{1,2}))(?!\d)/i;
+  const m = Object.keys(DOC_TYPES).length && Object.keys(DEPTS).length ? base.match(codeRe) : null;
   let rest = base;
   if (m) {
     out.docType = m[1].toUpperCase();
     out.dept = m[2].toUpperCase();
     out.docNo = m[3];
-    rest = rest.replace(m[0], ' ');
+    rest = rest.replace(m[0].replace(/^[^A-Za-z]/, ''), ' ');
   }
   const r = rest.match(revRe);
   if (r) {
-    out.rev = pad2(r[1]);
-    rest = rest.replace(r[0], ' ');
+    out.rev = pad2(r[2]);
+    rest = rest.replace(r[1], ' ');
   }
   const title = rest.replace(/[_]+/g, ' ').replace(/^[\s\-–:.]+|[\s\-–:.]+$/g, '').replace(/\s{2,}/g, ' ');
   if (title) out.title = title;
@@ -152,6 +198,7 @@ const ICONS = {
   left: 'M15.75 19.5 8.25 12l7.5-7.5',
   right: 'm8.25 4.5 7.5 7.5-7.5 7.5',
   send: 'M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5',
+  cog: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   refresh: 'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99',
 };
 
@@ -297,7 +344,8 @@ function storageRemove(key) {
 
 /* ---------- ฟอร์มข้อมูลเอกสาร (ใช้ร่วมกันทั้งหน้าส่งไฟล์และหน้าจัดการ) ---------- */
 function docFieldsHtml(d = {}, { prefix = '' } = {}) {
-  const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${k} – ${escapeHtml(v.th)}</option>`).join('');
+  const opt = (obj, sel) => Object.entries(obj).filter(([k, v]) => v.active || k === sel)
+    .map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${k} – ${escapeHtml(v.th)}</option>`).join('');
   return `
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
     <label class="col-span-1"><span class="label">ประเภท <span class="text-rose-500">*</span></span>

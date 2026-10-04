@@ -97,6 +97,7 @@ async function loadData(silent = false) {
     S.docs = d.documents || [];
     S.subs = d.submissions || [];
     S.logs = d.logs || [];
+    applyOptions(d.options);
     S.loaded = true;
     updateBadge();
     route();
@@ -134,6 +135,7 @@ const VIEWS = {
   dashboard: { title: 'ภาพรวม', render: renderDashboard },
   documents: { title: 'เอกสารทั้งหมด', render: renderDocuments },
   pending: { title: 'รอตรวจสอบ', render: renderPending },
+  settings: { title: 'ตั้งค่าแผนกและประเภทเอกสาร', render: renderSettings },
 };
 
 function route() {
@@ -157,6 +159,12 @@ function toggleSidebar(open) {
 /* ---------------- Helpers ---------------- */
 const deptName = (c) => (DEPTS[c] ? DEPTS[c].th : c);
 const activeDocs = () => S.docs.filter((d) => d.status === 'Active');
+/** รหัสที่ควรแสดงใน Filter/Dashboard: เปิดใช้งานอยู่ หรือยังมีเอกสารใช้รหัสนั้น */
+function visibleCodes(kind) {
+  const obj = kind === 'type' ? DOC_TYPES : DEPTS;
+  const field = kind === 'type' ? 'docType' : 'dept';
+  return Object.keys(obj).filter((k) => obj[k].active || S.docs.some((d) => d[field] === k));
+}
 const revisionsOf = (code) => S.docs.filter((d) => d.docCode === code).sort((a, b) => Number(b.rev) - Number(a.rev));
 
 function highlight(text, tokens) {
@@ -175,6 +183,7 @@ const LOG_META = {
   DELETE: ['ลบเอกสาร', 'bg-rose-50 text-rose-500', 'trash'],
   DOWNLOAD: ['ดาวน์โหลด', 'bg-indigo-50 text-indigo-600', 'download'],
   SHARE: ['สร้างลิงก์แชร์', 'bg-violet-50 text-violet-600', 'link'],
+  SETTING: ['ตั้งค่า', 'bg-slate-100 text-slate-600', 'cog'],
 };
 
 /* =============================================================
@@ -201,10 +210,12 @@ function renderDashboard() {
     </div>`;
 
   // แยกตามแผนก
-  const byDept = Object.keys(DEPTS).map((k) => ({ k, n: active.filter((d) => d.dept === k).length }));
+  const deptKeys = visibleCodes('dept');
+  const typeKeys = visibleCodes('type');
+  const byDept = deptKeys.map((k) => ({ k, n: active.filter((d) => d.dept === k).length }));
   const maxDept = Math.max(1, ...byDept.map((x) => x.n));
   // แยกตามประเภท
-  const byType = Object.keys(DOC_TYPES).map((k) => ({ k, n: active.filter((d) => d.docType === k).length }));
+  const byType = typeKeys.map((k) => ({ k, n: active.filter((d) => d.docType === k).length }));
   const totalActive = active.length || 1;
 
   const upcoming = active.filter((d) => d.effectiveDate > today).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate)).slice(0, 5);
@@ -265,14 +276,14 @@ function renderDashboard() {
       <table class="w-full min-w-[520px] text-sm">
         <thead><tr class="text-xs text-slate-500">
           <th class="py-2 pr-3 text-left font-medium">แผนก</th>
-          ${Object.keys(DOC_TYPES).map((t) => `<th class="px-2 py-2 text-center font-medium">${t}</th>`).join('')}
+          ${typeKeys.map((t) => `<th class="px-2 py-2 text-center font-medium">${t}</th>`).join('')}
           <th class="px-2 py-2 text-center font-medium">รวม</th></tr></thead>
         <tbody class="divide-y divide-slate-100">
-          ${Object.keys(DEPTS).map((dp) => {
-            const row = Object.keys(DOC_TYPES).map((t) => active.filter((d) => d.dept === dp && d.docType === t).length);
+          ${deptKeys.map((dp) => {
+            const row = typeKeys.map((t) => active.filter((d) => d.dept === dp && d.docType === t).length);
             const sum = row.reduce((a, b) => a + b, 0);
             return `<tr><td class="py-2 pr-3"><span class="font-mono text-xs font-semibold text-slate-700">${dp}</span> <span class="text-slate-500">${DEPTS[dp].th}</span></td>
-              ${row.map((n, i) => `<td class="px-2 py-1 text-center">${n ? `<button class="min-w-[2rem] rounded-md px-2 py-1 font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="goto-cell" data-dept="${dp}" data-type="${Object.keys(DOC_TYPES)[i]}">${n}</button>` : '<span class="text-slate-300">–</span>'}</td>`).join('')}
+              ${row.map((n, i) => `<td class="px-2 py-1 text-center">${n ? `<button class="min-w-[2rem] rounded-md px-2 py-1 font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="goto-cell" data-dept="${dp}" data-type="${typeKeys[i]}">${n}</button>` : '<span class="text-slate-300">–</span>'}</td>`).join('')}
               <td class="px-2 py-1 text-center font-semibold text-slate-800">${sum}</td></tr>`;
           }).join('')}
         </tbody>
@@ -343,12 +354,14 @@ function renderDocuments() {
       <div class="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
         <span class="w-14 shrink-0 text-xs font-medium text-slate-400">ประเภท</span>
         ${chip('type', '', 'ทั้งหมด')}
-        ${Object.entries(DOC_TYPES).map(([k, v]) => chip('type', k, `<span class="h-2 w-2 rounded-full ${v.bar}"></span>${k}`, v.name)).join('')}
+        ${visibleCodes('type').map((k) => chip('type', k, `<span class="chip-dot h-2 w-2 rounded-full ${DOC_TYPES[k].bar}"></span>${k}`, DOC_TYPES[k].name)).join('')}
+        <a href="#/settings" class="ml-1 shrink-0 text-xs text-slate-400 hover:text-teal-600" title="เพิ่ม/แก้ไขประเภทเอกสาร">${icon('plus', 'h-4 w-4')}</a>
       </div>
       <div class="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
         <span class="w-14 shrink-0 text-xs font-medium text-slate-400">แผนก</span>
         ${chip('dept', '', 'ทั้งหมด')}
-        ${Object.entries(DEPTS).map(([k, v]) => chip('dept', k, k, `${v.name} (${v.th})`)).join('')}
+        ${visibleCodes('dept').map((k) => chip('dept', k, k, `${DEPTS[k].name} (${DEPTS[k].th})`)).join('')}
+        <a href="#/settings" class="ml-1 shrink-0 text-xs text-slate-400 hover:text-teal-600" title="เพิ่ม/แก้ไขแผนก">${icon('plus', 'h-4 w-4')}</a>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="w-14 shrink-0 text-xs font-medium text-slate-400">สถานะ</span>
@@ -819,6 +832,112 @@ function openChangePassword() {
   });
 }
 
+/* =============================================================
+ * ตั้งค่า: แผนก / ประเภทเอกสาร
+ * ============================================================= */
+const KIND_META = {
+  dept: { title: 'แผนก', desc: 'ใช้เป็นส่วนที่ 2 ของรหัสเอกสาร เช่น SD-<b>QA</b>-11.01', field: 'dept', example: 'PC', exampleName: 'Purchasing', exampleTh: 'ฝ่ายจัดซื้อ' },
+  type: { title: 'ประเภทเอกสาร', desc: 'ใช้เป็นส่วนที่ 1 ของรหัสเอกสาร เช่น <b>SD</b>-QA-11.01', field: 'docType', example: 'MN', exampleName: 'Manual', exampleTh: 'คู่มือ' },
+};
+
+function renderSettings() {
+  main().innerHTML = `
+    <div class="mb-4 flex items-start gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800">
+      ${icon('info', 'h-5 w-5 shrink-0')}
+      <p>เพิ่มแผนกหรือประเภทเอกสารใหม่ได้ที่นี่ ระบบจะนำไปใช้ใน Filter, Dashboard, หน้าส่งเอกสาร และการอ่านชื่อไฟล์อัตโนมัติทันที
+      · ถ้าเลิกใช้ให้กด <b>ปิดใช้งาน</b> (เอกสารเดิมยังค้นหาได้ แต่จะเลือกใช้กับเอกสารใหม่ไม่ได้)</p>
+    </div>
+    <div class="grid gap-4 xl:grid-cols-2">${optionCard('dept')}${optionCard('type')}</div>`;
+}
+
+function optionCard(kind) {
+  const m = KIND_META[kind];
+  const list = optionList(kind);
+  return `
+  <section class="card overflow-hidden">
+    <div class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <div><h3 class="font-semibold text-slate-800">${m.title} <span class="ml-1 text-sm font-normal text-slate-400">${list.length}</span></h3>
+        <p class="mt-0.5 text-xs text-slate-500">${m.desc}</p></div>
+      <button class="btn btn-primary !px-3 !py-1.5 text-sm" data-action="opt-add" data-kind="${kind}">${icon('plus', 'h-4 w-4')}เพิ่ม${m.title}</button>
+    </div>
+    <ul class="divide-y divide-slate-100">
+      ${list.map((o) => {
+        const used = S.docs.filter((d) => d[m.field] === o.code).length;
+        const pend = S.subs.filter((d) => d.status === 'Pending' && d[m.field] === o.code).length;
+        return `<li class="flex items-center gap-3 px-5 py-3 ${o.active ? '' : 'bg-slate-50/70'}">
+          <span class="w-12 shrink-0">${kind === 'type' ? typeBadge(o.code) : `<span class="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-700">${escapeHtml(o.code)}</span>`}</span>
+          <div class="min-w-0 flex-1 ${o.active ? '' : 'opacity-60'}">
+            <p class="truncate text-sm font-medium text-slate-700">${escapeHtml(o.name)}${o.active ? '' : ' <span class="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">ปิดใช้งาน</span>'}</p>
+            <p class="truncate text-xs text-slate-400">${escapeHtml(o.th || '-')} · ${used} เอกสาร${pend ? ` · รอตรวจ ${pend}` : ''}</p>
+          </div>
+          <button class="switch ${o.active ? 'on' : ''}" role="switch" aria-checked="${o.active}" title="${o.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}" data-action="opt-toggle" data-kind="${kind}" data-code="${escapeHtml(o.code)}"><span></span></button>
+          <button class="icon-btn" data-action="opt-edit" data-kind="${kind}" data-code="${escapeHtml(o.code)}" title="แก้ไข">${icon('pencil', 'h-4 w-4')}</button>
+          <button class="icon-btn danger" data-action="opt-delete" data-kind="${kind}" data-code="${escapeHtml(o.code)}" title="${used + pend ? 'มีเอกสารใช้อยู่ ลบไม่ได้' : 'ลบ'}" ${used + pend ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>${icon('trash', 'h-4 w-4')}</button>
+        </li>`;
+      }).join('')}
+    </ul>
+  </section>`;
+}
+
+function openOptionForm(kind, code) {
+  const m = KIND_META[kind];
+  const isNew = !code;
+  const o = isNew ? { code: '', name: '', th: '', color: 'teal', active: true } : { code, ...(kind === 'type' ? DOC_TYPES : DEPTS)[code] };
+  const root = openModal(`
+    ${modalHeader(isNew ? `เพิ่ม${m.title}` : `แก้ไข${m.title} ${escapeHtml(code)}`)}
+    <form class="space-y-3 p-5" novalidate>
+      <label class="block"><span class="label">รหัส <span class="text-rose-500">*</span> <span class="font-normal text-slate-400">(ภาษาอังกฤษ 2-4 ตัว${isNew ? '' : ' · แก้ไขไม่ได้'})</span></span>
+        <input name="code" class="input font-mono uppercase ${isNew ? '' : '!bg-slate-50 !text-slate-500'}" value="${escapeHtml(o.code)}" placeholder="เช่น ${m.example}" maxlength="4" pattern="[A-Za-z]{2,4}" required ${isNew ? 'autofocus' : 'readonly'}></label>
+      <label class="block"><span class="label">ชื่อ (ภาษาอังกฤษ) <span class="text-rose-500">*</span></span>
+        <input name="name" class="input" value="${escapeHtml(o.name)}" placeholder="เช่น ${m.exampleName}" required></label>
+      <label class="block"><span class="label">ชื่อภาษาไทย</span>
+        <input name="th" class="input" value="${escapeHtml(o.th || '')}" placeholder="เช่น ${m.exampleTh}"></label>
+      ${kind === 'type' ? `<div><span class="label">สีป้าย</span>
+        <div class="flex flex-wrap gap-2">${Object.entries(COLORS).map(([k, c]) => `
+          <label class="cursor-pointer" title="${c.label}"><input type="radio" name="color" value="${k}" class="peer sr-only" ${k === o.color ? 'checked' : ''}>
+            <span class="flex h-8 w-8 items-center justify-center rounded-full ring-2 ring-transparent ring-offset-2 peer-checked:ring-slate-700 peer-focus-visible:ring-teal-400"><span class="h-6 w-6 rounded-full ${c.bar}"></span></span></label>`).join('')}
+        </div></div>` : ''}
+      <label class="flex items-center gap-2 pt-1 text-sm text-slate-700"><input type="checkbox" name="active" class="h-4 w-4 accent-teal-600" ${o.active ? 'checked' : ''}> เปิดใช้งาน (เลือกได้ในหน้าส่งเอกสาร)</label>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" class="btn btn-ghost" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
+    </form>`, { size: 'max-w-md' });
+  const form = root.querySelector('form');
+  form.code.addEventListener('input', () => { form.code.value = form.code.value.toUpperCase().replace(/[^A-Z]/g, ''); });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!form.reportValidity()) return;
+    saveOption({
+      kind, code: form.code.value.trim().toUpperCase(), name: form.name.value.trim(), th: form.th.value.trim(),
+      color: form.color ? form.color.value : '', active: form.active.checked,
+    }, isNew, form.querySelector('button[type=submit]'));
+  });
+}
+
+async function saveOption(option, isNew, btn) {
+  setBusy(btn, true);
+  try {
+    const list = await API.call('saveOption', { option, isNew });
+    applyOptions(list);
+    closeModal();
+    toast(`${isNew ? 'เพิ่ม' : 'บันทึก'} ${option.code} แล้ว`);
+    if (S.view === 'settings') renderSettings();
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(btn, false);
+  }
+}
+
+async function deleteOption(kind, code) {
+  const ok = await confirmDialog({ title: `ลบ${KIND_META[kind].title} ${escapeHtml(code)}`, message: 'ต้องการลบตัวเลือกนี้ใช่หรือไม่?', confirmText: 'ลบ', danger: true });
+  if (!ok) return;
+  try {
+    applyOptions(await API.call('deleteOption', { kind, code }));
+    toast(`ลบ ${code} แล้ว`);
+    renderSettings();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 /* ---------- จัดการ Click ทั้งหมด ---------- */
 async function onAction(e) {
   const el = e.target.closest('[data-action]');
@@ -875,6 +994,14 @@ async function onAction(e) {
       break;
     }
     case 'change-password': toggleSidebar(false); openChangePassword(); break;
+    case 'opt-add': openOptionForm(el.dataset.kind); break;
+    case 'opt-edit': openOptionForm(el.dataset.kind, el.dataset.code); break;
+    case 'opt-toggle': {
+      const o = (el.dataset.kind === 'type' ? DOC_TYPES : DEPTS)[el.dataset.code];
+      saveOption({ kind: el.dataset.kind, code: el.dataset.code, ...o, active: !o.active }, false, el);
+      break;
+    }
+    case 'opt-delete': deleteOption(el.dataset.kind, el.dataset.code); break;
     case 'reset-demo': {
       const ok = await confirmDialog({ title: 'รีเซ็ตข้อมูลตัวอย่าง', message: 'ข้อมูลทดลองทั้งหมดใน Browser นี้จะถูกลบและสร้างใหม่', confirmText: 'รีเซ็ต', danger: true });
       if (ok) { await MockAPI.handle({ action: 'resetDemo' }); API.token = ''; S.loaded = false; location.hash = ''; showLogin(); }

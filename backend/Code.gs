@@ -20,8 +20,21 @@ const APP = {
   MAX_FILE_MB: 25,
 };
 
-const DOC_TYPES = ['QP', 'WI', 'SD', 'FM'];
-const DEPTS = ['PD', 'QC', 'QA', 'MT', 'RD', 'HR', 'ST'];
+// ค่าเริ่มต้นของแผนก/ประเภทเอกสาร — หลังติดตั้งแล้วให้เพิ่ม/แก้ไขผ่านหน้า "ตั้งค่า" ในระบบ (เก็บในชีต Options)
+const DEFAULT_OPTIONS = [
+  ['type', 'QP', 'Quality Procedure', 'ระเบียบปฏิบัติ', 'indigo'],
+  ['type', 'WI', 'Work Instruction', 'วิธีปฏิบัติงาน', 'sky'],
+  ['type', 'SD', 'Supporting Document', 'เอกสารสนับสนุน', 'teal'],
+  ['type', 'FM', 'Form', 'แบบฟอร์ม', 'amber'],
+  ['dept', 'PD', 'Production', 'ฝ่ายผลิต', ''],
+  ['dept', 'QC', 'Quality Control', 'ฝ่ายควบคุมคุณภาพ', ''],
+  ['dept', 'QA', 'Quality Assurance', 'ฝ่ายประกันคุณภาพ', ''],
+  ['dept', 'MT', 'Maintenance', 'ฝ่ายซ่อมบำรุง', ''],
+  ['dept', 'RD', 'Research and Development', 'ฝ่ายวิจัยและพัฒนา', ''],
+  ['dept', 'HR', 'Human Resource', 'ฝ่ายบุคคล', ''],
+  ['dept', 'ST', 'Store', 'ฝ่ายคลังสินค้า', ''],
+];
+const COLORS = ['indigo', 'sky', 'teal', 'amber', 'rose', 'violet', 'emerald', 'orange', 'pink', 'lime', 'cyan', 'slate'];
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'];
 
 const T = {
@@ -36,6 +49,7 @@ const T = {
       'fileId', 'fileName', 'mimeType', 'fileSize', 'status', 'submittedAt', 'reviewedAt', 'reviewNote', 'note'],
   },
   LOGS: { name: 'Logs', headers: ['time', 'action', 'docCode', 'rev', 'detail'] },
+  OPTIONS: { name: 'Options', headers: ['kind', 'code', 'name', 'th', 'color', 'active'] },
 };
 
 /* =============================================================
@@ -63,6 +77,7 @@ function setup() {
   folder_(root, '02 เอกสารใช้งาน (Active)');
   folder_(root, '03 Rev เก่า (Obsolete)');
   if (!props.getProperty('PASSWORD_HASH')) setPassword_(APP.DEFAULT_PASSWORD);
+  options_(); // สร้างค่าเริ่มต้นของแผนก/ประเภท ถ้ายังไม่มี
   Logger.log('✅ ตั้งค่าเสร็จแล้ว');
   Logger.log('📁 โฟลเดอร์: ' + root.getUrl());
   Logger.log('📊 ฐานข้อมูล: ' + ss.getUrl());
@@ -102,6 +117,7 @@ function doPost(e) {
 
 const PUBLIC_ACTIONS = {
   ping: () => ({ time: now_() }),
+  getOptions: () => options_(),
   login: login_,
   submit: submit_,
   checkStatus: checkStatus_,
@@ -117,6 +133,8 @@ const ADMIN_ACTIONS = {
   getFile: getFile_,
   shareFile: shareFile_,
   changePassword: changePassword_,
+  saveOption: saveOption_,
+  deleteOption: deleteOption_,
   logout: logout_,
 };
 
@@ -181,7 +199,7 @@ function sha256_(s) {
 
 function submit_(req) {
   const data = req.data || {};
-  const d = validateDoc_(data);
+  const d = validateDoc_(data, true);
   const submitter = str_(data.submitter);
   if (!submitter) fail_('กรุณาระบุชื่อผู้ส่ง');
   checkFile_(req.file);
@@ -224,6 +242,7 @@ function bootstrap_() {
     documents: readAll_(T.DOCS).map(clean_),
     submissions: readAll_(T.SUBS).map(clean_),
     logs: readLast_(T.LOGS, 40).reverse(),
+    options: options_(),
   };
 }
 
@@ -339,10 +358,60 @@ function shareFile_(req) {
 }
 
 /* =============================================================
+ *  ตัวเลือก: แผนก / ประเภทเอกสาร
+ * ============================================================= */
+
+function options_() {
+  let rows = readAll_(T.OPTIONS);
+  if (!rows.length) {
+    DEFAULT_OPTIONS.forEach((r) => insert_(T.OPTIONS, { kind: r[0], code: r[1], name: r[2], th: r[3], color: r[4], active: 'TRUE' }));
+    rows = readAll_(T.OPTIONS);
+  }
+  return rows.map((o) => ({ kind: o.kind, code: o.code, name: o.name, th: o.th, color: o.color, active: String(o.active).toUpperCase() !== 'FALSE' }));
+}
+
+function saveOption_(req) {
+  const o = req.option || {};
+  const kind = o.kind === 'type' || o.kind === 'dept' ? o.kind : fail_('ประเภทตัวเลือกไม่ถูกต้อง');
+  const code = str_(o.code).toUpperCase();
+  if (!/^[A-Z]{2,4}$/.test(code)) fail_('รหัสต้องเป็นตัวอักษรภาษาอังกฤษ 2-4 ตัว');
+  const name = str_(o.name);
+  if (!name) fail_('กรุณาระบุชื่อ');
+  const row = {
+    kind: kind, code: code, name: name, th: str_(o.th),
+    color: kind === 'type' ? (COLORS.indexOf(o.color) >= 0 ? o.color : 'slate') : '',
+    active: o.active === false ? 'FALSE' : 'TRUE',
+  };
+  return withLock_(() => {
+    options_();
+    const cur = readAll_(T.OPTIONS).find((x) => x.kind === kind && x.code === code);
+    if (req.isNew && cur) fail_('รหัส ' + code + ' มีอยู่แล้ว');
+    if (!req.isNew && !cur) fail_('ไม่พบตัวเลือกนี้');
+    if (cur) update_(T.OPTIONS, cur, row); else insert_(T.OPTIONS, row);
+    log_('SETTING', code, '', (req.isNew ? 'เพิ่ม' : 'แก้ไข') + (kind === 'type' ? 'ประเภทเอกสาร ' : 'แผนก ') + code);
+    return options_();
+  });
+}
+
+function deleteOption_(req) {
+  const field = req.kind === 'type' ? 'docType' : 'dept';
+  return withLock_(() => {
+    const used = readAll_(T.DOCS).filter((d) => d[field] === req.code).length
+      + readAll_(T.SUBS).filter((d) => d[field] === req.code).length;
+    if (used) fail_('มีเอกสาร ' + used + ' รายการใช้รหัส ' + req.code + ' อยู่ ลบไม่ได้ (ใช้ "ปิดใช้งาน" แทน)');
+    const cur = readAll_(T.OPTIONS).find((x) => x.kind === req.kind && x.code === req.code);
+    if (!cur) fail_('ไม่พบตัวเลือกนี้');
+    sheet_(T.OPTIONS).deleteRow(cur._row);
+    log_('SETTING', req.code, '', 'ลบ' + (req.kind === 'type' ? 'ประเภทเอกสาร ' : 'แผนก ') + req.code);
+    return options_();
+  });
+}
+
+/* =============================================================
  *  Business logic
  * ============================================================= */
 
-function validateDoc_(src) {
+function validateDoc_(src, requireActive) {
   const d = {
     docType: str_(src.docType).toUpperCase(),
     dept: str_(src.dept).toUpperCase(),
@@ -352,8 +421,10 @@ function validateDoc_(src) {
     effectiveDate: str_(src.effectiveDate),
     author: str_(src.author),
   };
-  if (DOC_TYPES.indexOf(d.docType) < 0) fail_('ประเภทเอกสารไม่ถูกต้อง');
-  if (DEPTS.indexOf(d.dept) < 0) fail_('รหัสแผนกไม่ถูกต้อง');
+  const opts = options_();
+  const has = (kind, code) => opts.some((o) => o.kind === kind && o.code === code && (!requireActive || o.active));
+  if (!has('type', d.docType)) fail_('ประเภทเอกสารไม่ถูกต้อง หรือถูกปิดใช้งาน');
+  if (!has('dept', d.dept)) fail_('รหัสแผนกไม่ถูกต้อง หรือถูกปิดใช้งาน');
   if (!/^\d{2,3}(\.\d{2,3})?$/.test(d.docNo)) fail_('เลขที่เอกสารไม่ถูกต้อง (เช่น 01 หรือ 11.01)');
   if (!d.rev) fail_('กรุณาระบุ Revision');
   if (!d.title) fail_('กรุณาระบุชื่อเอกสาร');
