@@ -159,6 +159,14 @@ function typeBadge(type) {
   return `<span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${t ? t.badge : 'bg-slate-50 text-slate-600 ring-slate-200'}" title="${t ? escapeHtml(t.name) : ''}">${escapeHtml(type)}</span>`;
 }
 
+const EXT_COLORS = {
+  pdf: 'text-rose-500', doc: 'text-blue-500', docx: 'text-blue-500', xls: 'text-emerald-600', xlsx: 'text-emerald-600',
+  ppt: 'text-orange-500', pptx: 'text-orange-500', jpg: 'text-violet-500', jpeg: 'text-violet-500', png: 'text-violet-500',
+};
+function fileExtColor(name) {
+  return EXT_COLORS[fileExt(name)] || 'text-slate-500';
+}
+
 function fileIcon(name) {
   const ext = fileExt(name);
   const map = {

@@ -435,31 +435,31 @@ function renderDocTable() {
       <p class="text-xs text-slate-400 hidden sm:block">คลิกที่หัวคอลัมน์เพื่อเรียงลำดับ</p>
     </div>
     <div class="overflow-x-auto scrollbar-thin">
-      <table class="table-docs w-full min-w-[1120px] text-sm">
+      <table class="table-docs w-full min-w-[960px] text-sm">
         <thead class="thead-strong"><tr>
           ${th('docCode', 'รหัสเอกสาร', 'pl-4')}${th('title', 'ชื่อเอกสาร')}${th('dept', 'แผนก')}${th('rev', 'Revision')}
           ${th('effectiveDate', 'วันที่บังคับใช้')}${th('submittedAt', 'ส่งเข้าระบบ')}${th('', 'ไฟล์')}${th('author', 'ผู้จัดทำ')}
-          <th class="sticky-col px-3 py-3 pr-4 text-right text-xs">จัดการไฟล์</th></tr></thead>
+          <th class="sticky-col px-2 py-3 pr-3 text-right text-xs">จัดการ</th></tr></thead>
         <tbody class="divide-y divide-slate-100">
           ${rows.map((d) => {
             const revCount = S.docs.filter((x) => x.docCode === d.docCode).length;
             const future = d.effectiveDate > today;
+            const t = DOC_TYPES[d.docType];
             return `<tr>
-            <td class="px-3 py-3 pl-4 align-middle"><div class="flex items-center gap-2 whitespace-nowrap">${typeBadge(d.docType)}<span class="font-mono text-[13px] font-semibold text-slate-800">${highlight(d.docCode, tokens)}</span></div></td>
-            <td class="px-3 py-3 max-w-[260px]"><p class="truncate font-medium text-slate-700" title="${escapeHtml(d.title)}">${highlight(d.title, tokens)}</p>
-              ${d.status === 'Obsolete' ? '<span class="mt-0.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">Rev เก่า (ไม่ใช้งาน)</span>' : ''}</td>
-            <td class="px-3 py-3 whitespace-nowrap"><span class="font-mono text-xs font-semibold text-slate-600">${d.dept}</span><span class="block max-w-[120px] truncate text-[11px] text-slate-400" title="${escapeHtml(deptName(d.dept))}">${escapeHtml(deptName(d.dept))}</span></td>
-            <td class="px-3 py-3"><button class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[13px] text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="history" data-code="${escapeHtml(d.docCode)}" title="ดูประวัติ Revision">
-              Rev.${escapeHtml(d.rev)}${revCount > 1 ? `<span class="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">${revCount}</span>` : ''}</button></td>
-            <td class="px-3 py-3 whitespace-nowrap ${future ? 'text-amber-600' : 'text-slate-600'}">${formatDate(d.effectiveDate)}${future ? '<span class="block text-[11px] text-amber-500">ยังไม่ถึงวันบังคับใช้</span>' : ''}</td>
-            <td class="px-3 py-3 whitespace-nowrap text-slate-600" title="ส่งเข้าระบบโดย ${escapeHtml(d.submitter || '-')}${d.createdAt && d.createdAt !== d.submittedAt ? ` · จัดเก็บเมื่อ ${formatDateTime(d.createdAt)}` : ''}">${formatDate(d.submittedAt)}<span class="block text-[11px] text-slate-400">${formatDateTime(d.submittedAt).slice(11)} น.</span></td>
-            <td class="px-3 py-3"><button class="flex items-center gap-2 text-left" data-action="view" data-id="${d.id}" title="${escapeHtml(d.fileName)}">${fileIcon(d.fileName)}<span class="whitespace-nowrap text-xs text-slate-400">${formatSize(d.fileSize)}</span></button></td>
-            <td class="px-3 py-3 text-slate-600 whitespace-nowrap">${highlight(d.author, tokens)}</td>
-            <td class="sticky-col px-3 py-2 pr-4"><div class="flex justify-end gap-0.5">
-              <button class="icon-btn" data-action="view" data-id="${d.id}" title="เปิดดู">${icon('eye', 'h-[18px] w-[18px]')}</button>
+            <td class="px-3 py-2.5 pl-4"><div class="flex items-center gap-2 whitespace-nowrap" title="${escapeHtml(t ? `${d.docType} · ${t.name}` : d.docType)}">
+              <span class="h-2 w-2 shrink-0 rounded-full ${t ? t.bar : 'bg-slate-300'}"></span><span class="font-mono text-[13px] font-semibold text-slate-800">${highlight(d.docCode, tokens)}</span></div></td>
+            <td class="max-w-[300px] px-3 py-2.5"><button class="flex w-full min-w-0 items-center gap-2 text-left" data-action="detail" data-id="${d.id}" title="ดูรายละเอียด: ${escapeHtml(d.title)}">
+              <span class="truncate font-medium text-slate-700 hover:text-teal-700">${highlight(d.title, tokens)}</span>
+              ${d.status === 'Obsolete' ? '<span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">Rev เก่า</span>' : ''}</button></td>
+            <td class="px-3 py-2.5"><span class="font-mono text-xs font-semibold text-slate-600" title="${escapeHtml(deptName(d.dept))}">${d.dept}</span></td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><button class="rounded-md px-1 font-mono text-[13px] text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="detail" data-id="${d.id}" title="ดูประวัติ Revision">Rev.${escapeHtml(d.rev)}${revCount > 1 ? `<sup class="ml-0.5 text-[10px] text-slate-400">${revCount}</sup>` : ''}</button></td>
+            <td class="px-3 py-2.5 whitespace-nowrap ${future ? 'text-amber-600' : 'text-slate-600'}" ${future ? 'title="ยังไม่ถึงวันบังคับใช้"' : ''}>${formatDate(d.effectiveDate)}${future ? icon('clock', 'ml-1 inline h-3.5 w-3.5 -mt-0.5') : ''}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap text-slate-600" title="ส่งเข้าระบบโดย ${escapeHtml(d.submitter || '-')}">${formatDate(d.submittedAt)} <span class="text-xs text-slate-400">${formatDateTime(d.submittedAt).slice(11)}</span></td>
+            <td class="px-3 py-2.5"><button class="file-chip" data-action="view" data-id="${d.id}" title="${escapeHtml(d.fileName)} (${formatSize(d.fileSize)})">
+              <span class="font-bold uppercase ${fileExtColor(d.fileName)}">${escapeHtml(fileExt(d.fileName) || 'file')}</span>${icon('eye', 'h-3.5 w-3.5')}เปิดดู</button></td>
+            <td class="px-3 py-2.5 whitespace-nowrap text-slate-600">${highlight(d.author, tokens)}</td>
+            <td class="sticky-col px-2 py-1.5 pr-3"><div class="flex justify-end">
               <button class="icon-btn" data-action="download" data-id="${d.id}" title="ดาวน์โหลด">${icon('download', 'h-[18px] w-[18px]')}</button>
-              <button class="icon-btn" data-action="share" data-id="${d.id}" title="สร้างลิงก์ส่งต่อ">${icon('link', 'h-[18px] w-[18px]')}</button>
-              <button class="icon-btn" data-action="edit" data-id="${d.id}" title="แก้ไขข้อมูล">${icon('pencil', 'h-[18px] w-[18px]')}</button>
               <button class="icon-btn danger" data-action="delete" data-id="${d.id}" title="ลบ">${icon('trash', 'h-[18px] w-[18px]')}</button>
             </div></td></tr>`;
           }).join('')}
@@ -691,38 +691,55 @@ function openDocForm(doc = null, preset = {}) {
   });
 }
 
-/* ---------- Modal: ประวัติ Revision ---------- */
-function openHistory(code) {
-  const revs = revisionsOf(code);
-  if (!revs.length) return;
-  const top = revs[0];
+/* ---------- Modal: รายละเอียดเอกสาร + ประวัติ Revision ---------- */
+function openDetail(id) {
+  const d = S.docs.find((x) => x.id === id);
+  if (!d) return;
+  const revs = revisionsOf(d.docCode);
+  const t = DOC_TYPES[d.docType];
+  const field = (label, val, cls = '') => `<div class="${cls}"><dt class="text-xs text-slate-400">${label}</dt><dd class="mt-0.5 text-sm text-slate-700">${val}</dd></div>`;
+  const statusPill = (x) => (x.status === 'Active'
+    ? '<span class="shrink-0 whitespace-nowrap rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700 ring-1 ring-inset ring-teal-200">ใช้งานอยู่</span>'
+    : '<span class="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Rev เก่า</span>');
   openModal(`
-    ${modalHeader(`ประวัติ Revision · <span class="font-mono">${escapeHtml(code)}</span>`, escapeHtml(top.title))}
+    ${modalHeader(`<span class="font-mono">${escapeHtml(d.docCode)}</span> <span class="font-normal text-slate-400">Rev.${escapeHtml(d.rev)}</span>`, escapeHtml(d.title))}
     <div class="p-5">
-      <ol class="relative space-y-3 border-l border-slate-200 pl-5">
-        ${revs.map((d) => `
-        <li class="relative">
-          <span class="absolute -left-[27px] top-3 h-3 w-3 rounded-full ring-4 ring-white ${d.status === 'Active' ? 'bg-teal-500' : 'bg-slate-300'}"></span>
-          <div class="rounded-xl border ${d.status === 'Active' ? 'border-teal-200 bg-teal-50/30' : 'border-slate-200'} p-3">
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2"><span class="font-mono font-semibold text-slate-800">Rev.${escapeHtml(d.rev)}</span>
-                ${d.status === 'Active' ? '<span class="rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-700">ใช้งานอยู่</span>' : '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">ประวัติ</span>'}</div>
-              <div class="flex gap-0.5">
-                <button class="icon-btn" data-action="view" data-id="${d.id}" title="เปิดดู">${icon('eye', 'h-4 w-4')}</button>
-                <button class="icon-btn" data-action="download" data-id="${d.id}" title="ดาวน์โหลด">${icon('download', 'h-4 w-4')}</button>
-              </div>
-            </div>
-            <p class="mt-1 text-sm text-slate-600">${escapeHtml(d.title)}</p>
-            <p class="mt-1 text-xs text-slate-400">บังคับใช้ ${formatDate(d.effectiveDate)} · ผู้จัดทำ ${escapeHtml(d.author)}</p>
-            <p class="mt-0.5 text-xs text-slate-400">ส่งเข้าระบบ ${formatDateTime(d.submittedAt)} น.${d.submitter ? ` โดย ${escapeHtml(d.submitter)}` : ''}</p>
-            ${d.note ? `<div class="mt-2 rounded-lg bg-white/70 p-2 text-xs text-slate-600 ring-1 ring-slate-100"><span class="font-medium text-slate-500">เนื้อหาที่มีการแก้ไข:</span> <span class="whitespace-pre-line">${escapeHtml(d.note)}</span></div>` : ''}
-          </div>
-        </li>`).join('')}
-      </ol>
-      <div class="mt-5 flex justify-end">
-        <button class="btn btn-primary" data-action="new-rev" data-code="${escapeHtml(code)}">${icon('plus', 'h-4 w-4')}เพิ่ม Revision ใหม่</button>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-primary !py-2" data-action="view" data-id="${d.id}">${icon('eye', 'h-4 w-4')}เปิดดู</button>
+        <button class="btn btn-ghost !py-2" data-action="download" data-id="${d.id}">${icon('download', 'h-4 w-4')}ดาวน์โหลด</button>
+        <button class="btn btn-ghost !py-2" data-action="share" data-id="${d.id}">${icon('link', 'h-4 w-4')}ลิงก์ส่งต่อ</button>
+        <button class="btn btn-ghost !py-2" data-action="edit" data-id="${d.id}">${icon('pencil', 'h-4 w-4')}แก้ไขข้อมูล</button>
       </div>
-    </div>`, { size: 'max-w-lg' });
+
+      <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+        ${field('ประเภท', `${typeBadge(d.docType)} <span class="ml-1">${escapeHtml(t ? t.name : '')}</span>`)}
+        ${field('แผนก', `<span class="font-mono font-semibold">${escapeHtml(d.dept)}</span> <span class="text-slate-500">${escapeHtml(deptName(d.dept))}</span>`)}
+        ${field('สถานะ', statusPill(d))}
+        ${field('วันที่บังคับใช้', formatDate(d.effectiveDate))}
+        ${field('ส่งเข้าระบบ', `${formatDateTime(d.submittedAt)} น.`)}
+        ${field('ผู้จัดทำ', escapeHtml(d.author))}
+        ${field('ส่งโดย', escapeHtml(d.submitter || '-'))}
+        ${field('ไฟล์', `<span class="block truncate" title="${escapeHtml(d.fileName)}">${escapeHtml(d.fileName)}</span><span class="text-xs text-slate-400">${formatSize(d.fileSize)}</span>`, 'col-span-2')}
+      </dl>
+      ${d.note ? `<div class="mt-4 rounded-xl bg-slate-50 p-3 text-sm"><p class="text-xs text-slate-400">เนื้อหาที่มีการแก้ไข</p><p class="mt-1 whitespace-pre-line text-slate-700">${escapeHtml(d.note)}</p></div>` : ''}
+
+      <div class="mt-6 flex items-center justify-between">
+        <h4 class="text-sm font-semibold text-slate-800">ประวัติ Revision <span class="font-normal text-slate-400">${revs.length}</span></h4>
+        <button class="text-sm font-medium text-teal-600 hover:underline" data-action="new-rev" data-code="${escapeHtml(d.docCode)}">+ เพิ่ม Revision ใหม่</button>
+      </div>
+      <ul class="mt-2 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+        ${revs.map((r) => `
+        <li class="flex items-center gap-3 px-3 py-2.5 ${r.id === d.id ? 'bg-teal-50/50' : 'hover:bg-slate-50'}">
+          <button class="flex min-w-0 flex-1 items-center gap-3 text-left" data-action="detail" data-id="${r.id}" ${r.id === d.id ? 'disabled' : ''}>
+            <span class="w-14 font-mono text-sm font-semibold text-slate-800">Rev.${escapeHtml(r.rev)}</span>
+            ${statusPill(r)}
+            <span class="hidden truncate text-xs text-slate-400 sm:block">บังคับใช้ ${formatDate(r.effectiveDate)} · ส่ง ${formatDate(r.submittedAt)}${r.note ? ` · ${escapeHtml(r.note)}` : ''}</span>
+          </button>
+          <button class="icon-btn" data-action="view" data-id="${r.id}" title="เปิดดู">${icon('eye', 'h-4 w-4')}</button>
+          <button class="icon-btn" data-action="download" data-id="${r.id}" title="ดาวน์โหลด">${icon('download', 'h-4 w-4')}</button>
+        </li>`).join('')}
+      </ul>
+    </div>`, { size: 'max-w-2xl' });
 }
 
 /* ---------- ไฟล์: เปิดดู / ดาวน์โหลด / แชร์ ---------- */
@@ -990,7 +1007,8 @@ async function onAction(e) {
     case 'share': shareFile(id); break;
     case 'edit': openDocForm(S.docs.find((d) => d.id === id)); break;
     case 'delete': deleteDoc(id); break;
-    case 'history': openHistory(el.dataset.code); break;
+    case 'detail': openDetail(id); break;
+    case 'history': { const top = revisionsOf(el.dataset.code)[0]; if (top) openDetail(top.id); break; }
     case 'new-rev': {
       const top = revisionsOf(el.dataset.code)[0];
       openDocForm(null, { docType: top.docType, dept: top.dept, docNo: top.docNo, rev: pad2(Number(top.rev) + 1), title: top.title, author: top.author });
