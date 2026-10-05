@@ -87,6 +87,9 @@ const API = {
 const MockAPI = (() => {
   const KEY = 'dc_demo_db';
   const FILE_KEY = 'dc_demo_files';
+  const BACKUP_KEY = 'dc_demo_backups';
+  const BACKUP_KEEP = 8;
+  const BACKUP_KINDS = { auto: 'อัตโนมัติ', manual: 'กดสำรองเอง', restore: 'ก่อนกู้คืน' };
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
   const now = () => {
@@ -176,6 +179,18 @@ const MockAPI = (() => {
     }
     return id;
   }
+
+  function makeBackup(db, kind, keepId) {
+    const t = now();
+    const b = {
+      id: uuid(), name: `DCC Backup ${t.slice(0, 16).replace('T', ' ')} (${BACKUP_KINDS[kind]})`, kind, docs: String(db.docs.length), createdAt: t,
+      data: JSON.parse(JSON.stringify({ docs: db.docs, subs: db.subs, options: db.options, requests: db.requests })),
+    };
+    const list = [b, ...storageGet(BACKUP_KEY, [])].filter((x, i) => i < BACKUP_KEEP || x.id === keepId);
+    if (!storageSet(BACKUP_KEY, list)) fail('พื้นที่ใน Browser เต็ม สำรองข้อมูลไม่ได้');
+    return backupInfo(b);
+  }
+  const backupInfo = (b) => ({ id: b.id, name: b.name, kind: b.kind, docs: b.docs, createdAt: b.createdAt, url: '' });
 
   const optActive = (o) => !(o.active === false || o.active === 'false');
 
@@ -377,7 +392,38 @@ const MockAPI = (() => {
     bootstrap(req) {
       auth(req);
       const db = load();
-      return { documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), options: db.options, requests: db.requests, demo: true };
+      return {
+        documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), options: db.options, requests: db.requests, demo: true,
+        backup: { auto: false, last: (storageGet(BACKUP_KEY, [])[0] || {}).createdAt || '' },
+      };
+    },
+
+    // สำรองข้อมูล (โหมดทดลอง: เก็บสำเนาข้อมูลไว้ใน Browser)
+    listBackups(req) {
+      auth(req);
+      const list = storageGet(BACKUP_KEY, []);
+      return {
+        auto: false, last: (list[0] || {}).createdAt || '', keep: BACKUP_KEEP, hour: 2, folderUrl: '',
+        backups: list.map(backupInfo),
+      };
+    },
+
+    backupNow(req) {
+      auth(req);
+      const created = makeBackup(load(), 'manual');
+      return { ...actions.listBackups(req), created };
+    },
+
+    restoreBackup(req) {
+      auth(req);
+      const b = storageGet(BACKUP_KEY, []).find((x) => x.id === req.id);
+      if (!b) fail('ไม่พบชุดสำรองข้อมูลนี้');
+      const db = load();
+      const safety = makeBackup(db, 'restore', b.id);
+      Object.assign(db, JSON.parse(JSON.stringify(b.data)));
+      log(db, 'RESTORE', '', '', `กู้คืนข้อมูลจาก ${b.name}`);
+      save(db);
+      return { restored: b.name, docs: db.docs.length, recovered: 0, missing: 0, safety: safety.name };
     },
 
     approveSubmission(req) {
@@ -504,6 +550,7 @@ const MockAPI = (() => {
     resetDemo() {
       storageRemove(KEY);
       storageRemove(FILE_KEY);
+      storageRemove(BACKUP_KEY);
       return true;
     },
   };
@@ -515,7 +562,7 @@ const MockAPI = (() => {
         const fn = actions[req.action];
         if (!fn) fail('ไม่รู้จักคำสั่ง ' + req.action);
         const data = fn(req);
-        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest'];
+        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup'];
         return { ok: true, data, state: withState.includes(req.action) ? actions.bootstrap(req) : undefined };
       } catch (e) {
         return { ok: false, error: e.message, code: e.code || 'ERROR' };

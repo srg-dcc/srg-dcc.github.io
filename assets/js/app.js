@@ -17,6 +17,10 @@ const S = {
   reqTab: 'Pending',
   sig: '',
   syncedAt: 0,
+  backupInfo: null, // สถานะสำรองข้อมูลจาก bootstrap { auto, last }
+  backup: null,     // รายการชุดสำรอง (โหลดเมื่อเปิดหน้าสำรองข้อมูล)
+  backupAt: 0,
+  backupErr: '',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -144,7 +148,7 @@ function saveCache(d) {
 function clearCache() {
   storageRemove(cacheKey());
 }
-const stateSig = (d) => JSON.stringify([d.documents, d.submissions, d.logs, d.options, d.requests]);
+const stateSig = (d) => JSON.stringify([d.documents, d.submissions, d.logs, d.options, d.requests, d.backup]);
 
 /** วาดหน้าปัจจุบันใหม่ ถ้ากำลังพิมพ์ค้นหาอยู่จะอัปเดตเฉพาะตาราง */
 function rerender() {
@@ -175,6 +179,7 @@ function applyState(d, { save = true } = {}) {
   S.subs = d.submissions || [];
   S.reqs = d.requests || [];
   S.logs = d.logs || [];
+  S.backupInfo = d.backup || null;
   applyOptions(d.options);
   S.loaded = true;
   updateBadge();
@@ -215,6 +220,7 @@ function updateBadge() {
   rb.textContent = r;
   rb.classList.toggle('hidden', !r);
   document.title = `${n + r ? `(${n + r}) ` : ''}DCC · Document Control Center`;
+  $('#backup-dot').classList.toggle('hidden', !backupWarning());
 }
 
 /* ---------------- Router ---------------- */
@@ -224,6 +230,7 @@ const VIEWS = {
   pending: { title: 'รอตรวจสอบ', render: renderPending },
   settings: { title: 'ตั้งค่าแผนกและประเภทเอกสาร', render: renderSettings },
   requests: { title: 'คำขอไฟล์', render: renderRequests },
+  backup: { title: 'สำรองข้อมูล', render: renderBackup },
 };
 
 function route() {
@@ -275,6 +282,7 @@ const LOG_META = {
   REQUEST: ['ขอไฟล์', 'bg-sky-50 text-sky-600', 'inbox'],
   SEND: ['ส่งไฟล์ทางอีเมล', 'bg-emerald-50 text-emerald-600', 'send'],
   DENY: ['ปฏิเสธคำขอไฟล์', 'bg-rose-50 text-rose-500', 'x'],
+  RESTORE: ['กู้คืนข้อมูล', 'bg-amber-50 text-amber-600', 'restore'],
 };
 
 /* =============================================================
@@ -312,6 +320,7 @@ function renderDashboard() {
   const upcoming = active.filter((d) => d.effectiveDate > today).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate)).slice(0, 5);
 
   main().innerHTML = `
+  ${backupBanner()}
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
     ${kpi('เอกสารที่ใช้งานอยู่', active.length.toLocaleString(), `${S.docs.length} ไฟล์รวม Rev เก่า ${obsolete}`, 'folder', 'bg-teal-50 text-teal-600', 'data-action="goto-docs"')}
     ${kpi('รอตรวจสอบ', pending.length, pending.length ? 'มีเอกสารรอคุณตรวจสอบ' : 'ไม่มีงานค้าง', 'inbox', pending.length ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500', 'data-action="goto-pending"')}
@@ -1128,6 +1137,162 @@ function openQrDoc(id) {
 }
 
 /* =============================================================
+ * สำรองข้อมูล
+ * ============================================================= */
+const BACKUP_KIND = {
+  auto: ['อัตโนมัติ', 'bg-teal-50 text-teal-700'],
+  manual: ['กดสำรองเอง', 'bg-sky-50 text-sky-700'],
+  restore: ['ก่อนกู้คืน', 'bg-amber-50 text-amber-700'],
+};
+const daysSince = (iso) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : Infinity);
+
+/** ข้อความเตือน: ยังไม่เปิดสำรองอัตโนมัติ หรือไม่ได้สำรองนานเกินไป ('' = ปกติ) */
+function backupWarning() {
+  const b = S.backupInfo;
+  if (API.isDemo || !b) return '';
+  const days = daysSince(b.last);
+  if (!b.auto) return 'ยังไม่ได้เปิด<b>สำรองข้อมูลอัตโนมัติ</b> ถ้าข้อมูลถูกลบหรือแก้ผิด จะกู้คืนไม่ได้';
+  if (days > 14) return `ไม่ได้สำรองข้อมูลมา <b>${Number.isFinite(days) ? `${days} วัน` : 'นานแล้ว'}</b> สำรองข้อมูลอัตโนมัติอาจไม่ทำงาน`;
+  return '';
+}
+
+function backupBanner() {
+  const msg = backupWarning();
+  if (!msg) return '';
+  return `<a href="#/backup" class="mb-4 flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100">
+    ${icon('warning', 'h-5 w-5 shrink-0')}<span class="flex-1">${msg}</span><span class="shrink-0 font-medium underline">ดูวิธีตั้งค่า</span></a>`;
+}
+
+async function loadBackups() {
+  S.backupAt = Date.now();
+  try {
+    S.backup = await API.call('listBackups');
+    S.backupErr = '';
+    S.backupInfo = { auto: S.backup.auto, last: S.backup.last };
+    updateBadge();
+  } catch (err) {
+    if (err.code === 'AUTH') return;
+    S.backupErr = err.message;
+  }
+  if (S.view === 'backup') renderBackup();
+}
+
+function renderBackup() {
+  if (Date.now() - S.backupAt > 30000) loadBackups();
+  const b = S.backup;
+  if (!b) {
+    main().innerHTML = S.backupErr ? errorState(S.backupErr) : '<div class="skeleton h-40"></div><div class="skeleton mt-4 h-64"></div>';
+    return;
+  }
+  const days = daysSince(b.last);
+  const statusTone = b.auto ? (days > 14 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700') : 'bg-amber-50 text-amber-700';
+  const statusText = b.auto ? (days > 14 ? 'เปิดอยู่ แต่ไม่ได้ทำงานนานแล้ว' : 'เปิดอยู่') : 'ยังไม่เปิด';
+  main().innerHTML = `
+  <div class="grid gap-4 lg:grid-cols-5">
+    <section class="card p-5 lg:col-span-3">
+      <div class="flex items-start gap-3">
+        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-600">${icon('archive')}</span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-semibold text-slate-800">สำรองข้อมูลอัตโนมัติ</h3>
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium ${statusTone}" id="backup-status">${statusText}</span>
+          </div>
+          <p class="mt-1 text-sm text-slate-500">${API.isDemo
+    ? 'โหมดทดลอง: ชุดสำรองเก็บไว้ใน Browser นี้ (ไม่มีการสำรองอัตโนมัติ)'
+    : `ทุกวันจันทร์ เวลาประมาณ ${String(b.hour).padStart(2, '0')}:00–${String(b.hour + 1).padStart(2, '0')}:00 น. · เก็บ ${b.keep} ชุดล่าสุด ชุดที่เก่ากว่านั้นลบให้อัตโนมัติ`}</p>
+          <p class="mt-2 text-sm text-slate-600">สำรองล่าสุด: <b class="font-medium text-slate-800">${b.last ? `${formatDateTime(b.last)}</b> <span class="text-slate-400">(${timeAgo(b.last)})</span>` : 'ยังไม่เคยสำรอง</b>'}</p>
+        </div>
+      </div>
+      ${!b.auto && !API.isDemo ? `
+      <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-slate-700">
+        <p class="font-medium text-amber-800">วิธีเปิดสำรองอัตโนมัติ (ทำครั้งเดียว)</p>
+        <ol class="mt-2 list-decimal space-y-1 pl-5">
+          <li>เปิดโปรเจกต์ใน <a href="https://script.google.com" target="_blank" rel="noopener" class="font-medium text-teal-700 underline">Google Apps Script</a></li>
+          <li>ช่องเลือกฟังก์ชันด้านบน เลือก <code class="rounded bg-white px-1.5 py-0.5 font-mono text-xs">installBackup</code> แล้วกด <b>เรียกใช้ (Run)</b></li>
+          <li>ถ้ามีหน้าต่างขอสิทธิ์ ให้กดอนุญาต แล้วกลับมากดปุ่มรีเฟรชที่หน้านี้</li>
+        </ol>
+      </div>` : ''}
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button class="btn btn-primary" data-action="backup-now">${icon('archive', 'h-4 w-4')}สำรองตอนนี้</button>
+        ${b.folderUrl ? `<a class="btn btn-ghost" href="${escapeHtml(b.folderUrl)}" target="_blank" rel="noopener">${icon('folder', 'h-4 w-4')}เปิดโฟลเดอร์ใน Google Drive</a>` : ''}
+      </div>
+    </section>
+    <section class="card p-5 text-sm text-slate-600 lg:col-span-2">
+      <h3 class="font-semibold text-slate-800">สำรองอะไรบ้าง</h3>
+      <ul class="mt-2 space-y-1.5">
+        <li class="flex gap-2">${icon('check', 'h-4 w-4 mt-0.5 shrink-0 text-emerald-600')}รายการเอกสารทุก Rev, เอกสารรอตรวจ, คำขอไฟล์ และการตั้งค่าแผนก/ประเภท</li>
+        <li class="flex gap-2">${icon('check', 'h-4 w-4 mt-0.5 shrink-0 text-emerald-600')}ใช้พื้นที่น้อยมาก (ชุดละไม่ถึง 1–2 MB)</li>
+        <li class="flex gap-2">${icon('info', 'h-4 w-4 mt-0.5 shrink-0 text-slate-400')}ไม่รวมไฟล์ PDF เพราะไฟล์อยู่ใน Google Drive อยู่แล้ว ไฟล์ที่ลบไปอยู่ในถังขยะ 30 วัน และระบบดึงคืนให้ตอนกู้คืน</li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="card mt-4 overflow-hidden">
+    <div class="border-b border-slate-100 px-5 py-4">
+      <h3 class="font-semibold text-slate-800">ชุดสำรองข้อมูล <span class="ml-1 text-sm font-normal text-slate-400">${b.backups.length}</span></h3>
+      <p class="mt-0.5 text-xs text-slate-500">กด <b>กู้คืน</b> เพื่อย้อนข้อมูลกลับไปเป็นของวันนั้น · ก่อนกู้คืนระบบจะสำรองข้อมูลปัจจุบันไว้ให้ก่อนเสมอ เปลี่ยนใจย้อนกลับได้</p>
+    </div>
+    ${b.backups.length ? `<ul class="divide-y divide-slate-100" id="backup-list">${b.backups.map((x, i) => {
+    const k = BACKUP_KIND[x.kind];
+    return `<li class="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">${icon('archive', 'h-4 w-4')}</span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-slate-800"><span class="whitespace-nowrap">${formatDateTime(x.createdAt)}</span> <span class="whitespace-nowrap font-normal text-slate-400">· ${timeAgo(x.createdAt)}</span>${i === 0 ? ' <span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-500">ล่าสุด</span>' : ''}</p>
+          <p class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">${k ? `<span class="rounded px-1.5 py-0.5 ${k[1]}">${k[0]}</span>` : ''}${x.docs !== '' ? `เอกสาร ${escapeHtml(x.docs)} รายการ` : ''}</p>
+        </div>
+        <div class="flex gap-1.5">
+          ${x.url ? `<a class="btn btn-ghost !px-3 !py-1.5 text-sm" href="${escapeHtml(x.url)}" target="_blank" rel="noopener" title="เปิดดูข้อมูลใน Google Sheets" aria-label="เปิดดู">${icon('eye', 'h-4 w-4')}<span class="hidden sm:inline">เปิดดู</span></a>` : ''}
+          <button class="btn btn-ghost !px-3 !py-1.5 text-sm" data-action="backup-restore" data-id="${escapeHtml(x.id)}" title="กู้คืนข้อมูลจากชุดนี้">${icon('restore', 'h-4 w-4')}กู้คืน</button>
+        </div>
+      </li>`;
+  }).join('')}</ul>`
+    : '<p class="px-5 py-10 text-center text-sm text-slate-400">ยังไม่มีชุดสำรองข้อมูล · กด <b>สำรองตอนนี้</b> เพื่อสร้างชุดแรก</p>'}
+  </section>`;
+}
+
+async function backupNow(btn) {
+  setBusy(btn, true);
+  try {
+    S.backup = await API.call('backupNow');
+    S.backupAt = Date.now();
+    S.backupInfo = { auto: S.backup.auto, last: S.backup.last };
+    updateBadge();
+    toast('สำรองข้อมูลแล้ว');
+    if (S.view === 'backup') renderBackup();
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(btn, false);
+  }
+}
+
+async function restoreBackup(id) {
+  const x = S.backup && S.backup.backups.find((b) => b.id === id);
+  if (!x) return;
+  const ok = await confirmDialog({
+    title: 'กู้คืนข้อมูล',
+    message: `ข้อมูลเอกสาร รายการรอตรวจ คำขอไฟล์ และการตั้งค่าทั้งหมด จะย้อนกลับไปเป็นของวันที่ <b class="text-slate-700">${formatDateTime(x.createdAt)}</b>
+      สิ่งที่ทำหลังจากนั้นจะหายไปจากระบบ<br><br>ระบบจะสำรองข้อมูลปัจจุบันไว้ให้ก่อน (ชื่อ "ก่อนกู้คืน") ถ้าเปลี่ยนใจ กู้คืนจากชุดนั้นได้`,
+    confirmText: 'กู้คืน', danger: true,
+  });
+  if (!ok || S.restoring) return;
+  S.restoring = true;
+  toast('กำลังกู้คืนข้อมูล อาจใช้เวลาสักครู่...', 'info');
+  try {
+    const res = await API.call('restoreBackup', { id });
+    const st = API.takeState();
+    if (st) applyState(st); else await loadData(true);
+    S.backupAt = 0; // โหลดรายการชุดสำรองใหม่ (มีชุด "ก่อนกู้คืน" เพิ่ม)
+    toast(`กู้คืนข้อมูลแล้ว · เอกสาร ${res.docs} รายการ${res.recovered ? ` · ดึงไฟล์คืนจากถังขยะ ${res.recovered} ไฟล์` : ''}`);
+    if (res.missing) toast(`ไม่พบไฟล์ ${res.missing} ไฟล์ (อาจถูกลบถาวรจากถังขยะแล้ว) เอกสารเหล่านั้นจะเปิดไฟล์ไม่ได้`, 'error');
+    route();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    S.restoring = false;
+  }
+}
+
+/* =============================================================
  * ตั้งค่า: แผนก / ประเภทเอกสาร
  * ============================================================= */
 const KIND_META = {
@@ -1252,7 +1417,12 @@ async function onAction(e) {
   switch (a) {
     case 'open-sidebar': toggleSidebar(true); break;
     case 'close-sidebar': toggleSidebar(false); break;
-    case 'refresh': loadData(false).then((ok) => ok && toast('อัปเดตข้อมูลแล้ว', 'info')); break;
+    case 'backup-now': backupNow(el); break;
+    case 'backup-restore': restoreBackup(id); break;
+    case 'refresh':
+      if (S.view === 'backup') loadBackups(); else S.backupAt = 0;
+      loadData(false).then((ok) => ok && toast('อัปเดตข้อมูลแล้ว', 'info'));
+      break;
     case 'add-doc': toggleSidebar(false); openDocForm(); break;
     case 'goto-docs': goDocs({}); break;
     case 'goto-pending': location.hash = '#/pending'; break;

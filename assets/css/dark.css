@@ -2,6 +2,9 @@
 html.dark .divide-slate-100>:not([hidden])~:not([hidden]) {
     border-color: rgb(30 41 59 / var(--tw-divide-opacity,1))
 }
+html.dark .border-amber-200 {
+    border-color: rgb(146 64 14 / var(--tw-border-opacity,1))
+}
 html.dark .border-slate-100 {
     border-color: rgb(30 41 59 / var(--tw-border-opacity,1))
 }
@@ -25,6 +28,9 @@ html.dark .bg-amber-100 {
 }
 html.dark .bg-amber-50 {
     background-color: rgb(69 26 3 / calc(var(--tw-bg-opacity,1) * 0.45))
+}
+html.dark .bg-amber-50\/60 {
+    background-color: rgb(69 26 3 / 0.27)
 }
 html.dark .bg-cyan-50 {
     background-color: rgb(8 51 68 / calc(var(--tw-bg-opacity,1) * 0.45))
@@ -250,6 +256,9 @@ html.dark .hover\:border-teal-300:hover {
 }
 html.dark .hover\:\!bg-rose-50:hover {
     background-color: rgb(76 5 25 / calc(var(--tw-bg-opacity,1) * 0.45)) !important
+}
+html.dark .hover\:bg-amber-100:hover {
+    background-color: rgb(120 53 15 / calc(var(--tw-bg-opacity,1) * 0.55))
 }
 html.dark .hover\:bg-slate-100:hover {
     background-color: rgb(30 41 59 / var(--tw-bg-opacity,1))

@@ -10,6 +10,7 @@
  *   4. Deploy > New deployment > Web app
  *        Execute as: Me  /  Who has access: Anyone
  *   5. คัดลอก Web app URL ไปใส่ใน assets/js/config.js
+ *   6. เลือกฟังก์ชัน installBackup แล้วกด Run (เปิดสำรองข้อมูลอัตโนมัติทุกสัปดาห์)
  * =============================================================
  */
 
@@ -26,6 +27,8 @@ const APP = {
   MAX_DOCS_PER_REQUEST: 20,
   MAX_EMAIL_MB: 20,            // ขนาดไฟล์แนบรวมต่ออีเมล (Gmail จำกัด 25 MB)
   ADMIN_ALERTS_PER_HOUR: 30,   // จำกัดอีเมลแจ้งเตือนผู้ดูแล กันอีเมลท่วม
+  BACKUP_KEEP: 8,              // เก็บชุดสำรองข้อมูลย้อนหลังกี่ชุด (ชุดเก่ากว่านั้นย้ายไปถังขยะอัตโนมัติ)
+  BACKUP_HOUR: 2,              // สำรองอัตโนมัติทุกวันจันทร์ ช่วงเวลา 02:00-03:00 น.
 };
 
 // จำกัดความยาวข้อความแต่ละช่อง (กันข้อมูลขยะ/เกินขนาด cell ของ Sheets)
@@ -98,6 +101,7 @@ function setup() {
   folder_(root, '01 รอตรวจสอบ (Pending)');
   folder_(root, '02 เอกสารใช้งาน (Active)');
   folder_(root, '03 Rev เก่า (Obsolete)');
+  folder_(root, BACKUP_FOLDER);
   if (!props.getProperty('PASSWORD_HASH')) setPassword_(APP.DEFAULT_PASSWORD);
   options_(); // สร้างค่าเริ่มต้นของแผนก/ประเภท ถ้ายังไม่มี
   Logger.log('✅ ตั้งค่าเสร็จแล้ว');
@@ -151,7 +155,7 @@ const PUBLIC_ACTIONS = {
   checkRequest: checkRequest_,
 };
 
-const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest'];
+const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup'];
 
 const ADMIN_ACTIONS = {
   bootstrap: bootstrap_,
@@ -167,6 +171,9 @@ const ADMIN_ACTIONS = {
   deleteOption: deleteOption_,
   approveRequest: approveRequest_,
   rejectRequest: rejectRequest_,
+  listBackups: listBackups_,
+  backupNow: backupNow_,
+  restoreBackup: restoreBackup_,
   logout: logout_,
 };
 
@@ -296,6 +303,7 @@ function bootstrap_() {
     logs: readLast_(T.LOGS, 40).reverse(),
     options: options_(),
     requests: readAll_(T.REQS).map(clean_),
+    backup: backupStatus_(),
   };
 }
 
@@ -572,6 +580,169 @@ function table_(rows) {
 }
 function button_(label, url) {
   return '<p><a href="' + escape_(url) + '" style="display:inline-block;background:#0d9488;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none">' + escape_(label) + '</a></p>';
+}
+
+/* =============================================================
+ *  สำรองข้อมูล (Backup)
+ *  คัดลอกไฟล์ Google Sheets ฐานข้อมูลทั้งไฟล์ไปเก็บในโฟลเดอร์ "04 สำรองข้อมูล (Backup)"
+ *  ไม่สำรองไฟล์ PDF ซ้ำ: ไฟล์อยู่ใน Drive แล้ว และไฟล์ที่ลบจะอยู่ในถังขยะของ Drive 30 วัน
+ * ============================================================= */
+
+const BACKUP_FOLDER = '04 สำรองข้อมูล (Backup)';
+const BACKUP_PREFIX = 'DCC Backup ';
+const BACKUP_KINDS = { auto: 'อัตโนมัติ', manual: 'กดสำรองเอง', restore: 'ก่อนกู้คืน' };
+const RESTORE_TABLES = ['DOCS', 'SUBS', 'OPTIONS', 'REQS']; // ไม่ย้อนชีต Logs เพื่อเก็บประวัติกิจกรรมไว้ครบ
+
+/** รันครั้งเดียวใน Apps Script: เปิดสำรองข้อมูลอัตโนมัติทุกสัปดาห์ และสำรองชุดแรกทันที */
+function installBackup() {
+  ScriptApp.getProjectTriggers().forEach((t) => { if (t.getHandlerFunction() === 'autoBackup') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('autoBackup').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(APP.BACKUP_HOUR).create();
+  PropertiesService.getScriptProperties().setProperty('BACKUP_AUTO', '1');
+  const b = withLock_(() => backup_('auto'));
+  Logger.log('✅ เปิดสำรองข้อมูลอัตโนมัติแล้ว: ทุกวันจันทร์ ' + APP.BACKUP_HOUR + ':00-' + (APP.BACKUP_HOUR + 1) + ':00 น. เก็บย้อนหลัง ' + APP.BACKUP_KEEP + ' ชุด');
+  Logger.log('📦 สำรองชุดแรกแล้ว: ' + b.name);
+  Logger.log('📁 โฟลเดอร์: ' + backupFolder_().getUrl());
+}
+
+/** ปิดสำรองอัตโนมัติ (ชุดที่สำรองไว้แล้วยังอยู่ครบ) */
+function uninstallBackup() {
+  ScriptApp.getProjectTriggers().forEach((t) => { if (t.getHandlerFunction() === 'autoBackup') ScriptApp.deleteTrigger(t); });
+  PropertiesService.getScriptProperties().deleteProperty('BACKUP_AUTO');
+  Logger.log('ปิดสำรองข้อมูลอัตโนมัติแล้ว');
+}
+
+/** เรียกโดยตัวตั้งเวลา (Trigger) ทุกสัปดาห์ — ถ้าล้มเหลวจะแจ้งผู้ดูแลทางอีเมล */
+function autoBackup() {
+  try {
+    withLock_(() => backup_('auto'));
+  } catch (err) {
+    notifyAdmin_('สำรองข้อมูลอัตโนมัติไม่สำเร็จ', '<p>สำรองข้อมูลอัตโนมัติไม่สำเร็จ: ' + escape_(err.message) + '</p><p>ลองกด "สำรองตอนนี้" ในเมนูสำรองข้อมูล</p>');
+    throw err;
+  }
+}
+
+function backupFolder_() {
+  return folder_(rootFolder_(), BACKUP_FOLDER);
+}
+
+function backupStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  return { auto: props.getProperty('BACKUP_AUTO') === '1', last: props.getProperty('BACKUP_LAST') || '' };
+}
+
+/** ชุดสำรองทั้งหมด เรียงจากใหม่ไปเก่า (เฉพาะไฟล์ที่ระบบสร้าง) */
+function backupFiles_() {
+  const out = [];
+  const it = backupFolder_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName().indexOf(BACKUP_PREFIX) === 0 && !f.isTrashed()) out.push(f);
+  }
+  return out.sort((a, b) => b.getDateCreated().getTime() - a.getDateCreated().getTime());
+}
+
+function backupInfo_(f) {
+  let meta = {};
+  try { meta = JSON.parse(f.getDescription() || '{}') || {}; } catch (e) { /* ไม่มีข้อมูลประกอบ */ }
+  return {
+    id: f.getId(), name: f.getName(), kind: BACKUP_KINDS[meta.kind] ? meta.kind : '',
+    docs: meta.docs === undefined ? '' : String(meta.docs),
+    createdAt: Utilities.formatDate(f.getDateCreated(), tz_(), "yyyy-MM-dd'T'HH:mm:ss"), url: f.getUrl(),
+  };
+}
+
+/** สร้างชุดสำรอง 1 ชุด (ต้องเรียกภายใน withLock_) แล้วลบชุดเก่าที่เกินจำนวน */
+function backup_(kind, keepId) {
+  SpreadsheetApp.flush();
+  const docs = readAll_(T.DOCS).length;
+  const name = BACKUP_PREFIX + Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm') + ' (' + BACKUP_KINDS[kind] + ')';
+  const copy = DriveApp.getFileById(db_().getId()).makeCopy(name, backupFolder_());
+  copy.setDescription(JSON.stringify({ kind: kind, docs: docs }));
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('BACKUP_LAST', now_());
+  props.setProperty('BACKUP_LAST_MS', String(Date.now()));
+  backupFiles_().forEach((f, i) => {
+    if (i >= APP.BACKUP_KEEP && f.getId() !== keepId) f.setTrashed(true);
+  });
+  return backupInfo_(copy);
+}
+
+function listBackups_() {
+  return Object.assign(backupStatus_(), {
+    keep: APP.BACKUP_KEEP, hour: APP.BACKUP_HOUR, folderUrl: backupFolder_().getUrl(), backups: backupFiles_().map(backupInfo_),
+  });
+}
+
+function backupNow_() {
+  return withLock_(() => {
+    const lastMs = Number(PropertiesService.getScriptProperties().getProperty('BACKUP_LAST_MS') || 0);
+    if (Date.now() - lastMs < 60 * 1000) fail_('เพิ่งสำรองข้อมูลไปเมื่อสักครู่ กรุณารอ 1 นาทีแล้วลองใหม่');
+    const b = backup_('manual');
+    return Object.assign(listBackups_(), { created: b });
+  });
+}
+
+/** อ่านชีตจากไฟล์สำรอง โดยจับคู่คอลัมน์ตามชื่อหัวคอลัมน์ (รองรับชุดสำรองจากระบบรุ่นเก่า) */
+function readBackupSheet_(sh) {
+  const rows = sh.getLastRow();
+  const cols = sh.getLastColumn();
+  if (rows < 2 || cols < 1) return [];
+  const vals = sh.getRange(1, 1, rows, cols).getDisplayValues();
+  const head = vals[0];
+  return vals.slice(1).filter((r) => r.some((v) => v !== '')).map((r) => {
+    const o = {};
+    head.forEach((h, j) => { if (h) o[h] = cellRead_(r[j]); });
+    return o;
+  });
+}
+
+function replaceRows_(t, list) {
+  const sh = sheet_(t);
+  const last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, Math.max(sh.getLastColumn(), t.headers.length)).clearContent();
+  if (list.length) {
+    sh.getRange(2, 1, list.length, t.headers.length).setNumberFormat('@')
+      .setValues(list.map((o) => t.headers.map((h) => cellSafe_(o[h]))));
+  }
+  delete READ_CACHE_[t.name];
+}
+
+/** ไฟล์ที่ข้อมูลอ้างถึงและยังต้องใช้งาน: เอกสารทุก Rev + ไฟล์ที่รอตรวจ */
+function fileRefs_(docs, subs) {
+  return docs.map((d) => d.fileId).concat(subs.filter((s) => s.status === 'Pending').map((s) => s.fileId)).filter(Boolean);
+}
+
+function restoreBackup_(req) {
+  return withLock_(() => {
+    const file = backupFiles_().filter((f) => f.getId() === String(req.id || ''))[0];
+    if (!file) fail_('ไม่พบชุดสำรองข้อมูลนี้');
+    const src = SpreadsheetApp.openById(file.getId());
+    if (!src.getSheetByName(T.DOCS.name)) fail_('ไฟล์นี้ไม่ใช่ชุดสำรองข้อมูลของ DCC');
+    const data = {};
+    RESTORE_TABLES.forEach((k) => {
+      const sh = src.getSheetByName(T[k].name);
+      data[k] = sh ? readBackupSheet_(sh) : [];
+    });
+    if (!data.OPTIONS.length) fail_('ชุดสำรองนี้ไม่มีข้อมูลการตั้งค่า อาจเสียหาย จึงไม่กู้คืน');
+
+    const inUse = {};
+    fileRefs_(readAll_(T.DOCS), readAll_(T.SUBS)).forEach((id) => { inUse[id] = true; });
+    const safety = backup_('restore', file.getId()); // สำรองข้อมูลปัจจุบันไว้ก่อน เปลี่ยนใจกู้กลับได้
+    RESTORE_TABLES.forEach((k) => replaceRows_(T[k], data[k]));
+
+    // ไฟล์ที่ถูกลบหลังวันที่สำรอง → ดึงกลับจากถังขยะของ Drive (ถ้ายังไม่เกิน 30 วัน)
+    let recovered = 0;
+    let missing = 0;
+    fileRefs_(data.DOCS, data.SUBS).forEach((id) => {
+      if (inUse[id]) return;
+      try {
+        const f = DriveApp.getFileById(id);
+        if (f.isTrashed()) { f.setTrashed(false); recovered++; }
+      } catch (e) { missing++; }
+    });
+    log_('RESTORE', '', '', 'กู้คืนข้อมูลจาก ' + file.getName() + (recovered ? ' · ดึงไฟล์คืนจากถังขยะ ' + recovered + ' ไฟล์' : '') + (missing ? ' · ไม่พบไฟล์ ' + missing + ' ไฟล์' : ''));
+    return { restored: file.getName(), docs: data.DOCS.length, recovered: recovered, missing: missing, safety: safety.name };
+  });
 }
 
 /* =============================================================
