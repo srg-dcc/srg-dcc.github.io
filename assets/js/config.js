@@ -6,7 +6,7 @@
  */
 window.APP_CONFIG = {
   API_URL: '',
-  APP_NAME: 'DocControl',
-  ORG_NAME: 'ระบบจัดเก็บเอกสารองค์กร',
+  APP_NAME: 'DCC',
+  ORG_NAME: 'Document Control Center',
   MAX_FILE_MB: 25,
 };

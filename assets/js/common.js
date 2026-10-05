@@ -26,6 +26,7 @@ const DEFAULT_OPTIONS = [
   { kind: 'type', code: 'WI', name: 'Work Instruction', th: 'วิธีปฏิบัติงาน', color: 'sky', active: true },
   { kind: 'type', code: 'SD', name: 'Supporting Document', th: 'เอกสารสนับสนุน', color: 'teal', active: true },
   { kind: 'type', code: 'FM', name: 'Form', th: 'แบบฟอร์ม', color: 'amber', active: true },
+  { kind: 'type', code: 'AP', name: 'Annual Plan', th: 'แผนงานประจำปี', color: 'violet', active: true },
   { kind: 'dept', code: 'PD', name: 'Production', th: 'ฝ่ายผลิต', active: true },
   { kind: 'dept', code: 'QC', name: 'Quality Control', th: 'ฝ่ายควบคุมคุณภาพ', active: true },
   { kind: 'dept', code: 'QA', name: 'Quality Assurance', th: 'ฝ่ายประกันคุณภาพ', active: true },

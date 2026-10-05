@@ -94,7 +94,7 @@ async function loadData(silent = false) {
   if (!silent && !S.loaded) main().innerHTML = skeleton();
   try {
     const d = await API.call('bootstrap');
-    S.docs = d.documents || [];
+    S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
     S.subs = d.submissions || [];
     S.logs = d.logs || [];
     applyOptions(d.options);
@@ -127,7 +127,7 @@ function updateBadge() {
   const b = $('#pending-badge');
   b.textContent = n;
   b.classList.toggle('hidden', !n);
-  document.title = `${n ? `(${n}) ` : ''}DocControl · ระบบจัดเก็บเอกสาร`;
+  document.title = `${n ? `(${n}) ` : ''}DCC · Document Control Center`;
 }
 
 /* ---------------- Router ---------------- */
@@ -274,15 +274,15 @@ function renderDashboard() {
     <p class="mb-3 text-xs text-slate-400">คลิกตัวเลขเพื่อดูรายการเอกสาร</p>
     <div class="overflow-x-auto scrollbar-thin">
       <table class="w-full min-w-[520px] text-sm">
-        <thead><tr class="text-xs text-slate-500">
-          <th class="py-2 pr-3 text-left font-medium">แผนก</th>
+        <thead class="thead-strong"><tr class="text-xs">
+          <th class="px-3 py-2.5 text-left font-medium">แผนก</th>
           ${typeKeys.map((t) => `<th class="px-2 py-2 text-center font-medium">${t}</th>`).join('')}
           <th class="px-2 py-2 text-center font-medium">รวม</th></tr></thead>
         <tbody class="divide-y divide-slate-100">
           ${deptKeys.map((dp) => {
             const row = typeKeys.map((t) => active.filter((d) => d.dept === dp && d.docType === t).length);
             const sum = row.reduce((a, b) => a + b, 0);
-            return `<tr><td class="py-2 pr-3"><span class="font-mono text-xs font-semibold text-slate-700">${dp}</span> <span class="text-slate-500">${DEPTS[dp].th}</span></td>
+            return `<tr><td class="px-3 py-2"><span class="font-mono text-xs font-semibold text-slate-700">${dp}</span> <span class="text-slate-500">${DEPTS[dp].th}</span></td>
               ${row.map((n, i) => `<td class="px-2 py-1 text-center">${n ? `<button class="min-w-[2rem] rounded-md px-2 py-1 font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="goto-cell" data-dept="${dp}" data-type="${typeKeys[i]}">${n}</button>` : '<span class="text-slate-300">–</span>'}</td>`).join('')}
               <td class="px-2 py-1 text-center font-semibold text-slate-800">${sum}</td></tr>`;
           }).join('')}
@@ -414,8 +414,8 @@ function renderDocTable() {
 
   const th = (key, label, cls = '') => {
     const on = S.sort.key === key;
-    return `<th class="px-3 py-3 text-left text-xs font-medium text-slate-500 ${cls}">
-      ${key ? `<button class="inline-flex items-center gap-1 hover:text-slate-800 ${on ? 'text-slate-800' : ''}" data-action="sort" data-key="${key}">${label}<span class="${on ? '' : 'opacity-0'}">${icon(on && S.sort.dir < 0 ? 'down' : 'up', 'h-3 w-3')}</span></button>` : label}</th>`;
+    return `<th class="px-3 py-3 text-left text-xs ${on ? 'sorted' : ''} ${cls}">
+      ${key ? `<button class="inline-flex items-center gap-1" data-action="sort" data-key="${key}">${label}<span class="${on ? '' : 'opacity-0'}">${icon(on && S.sort.dir < 0 ? 'down' : 'up', 'h-3 w-3')}</span></button>` : label}</th>`;
   };
 
   if (!list.length) {
@@ -435,26 +435,27 @@ function renderDocTable() {
       <p class="text-xs text-slate-400 hidden sm:block">คลิกที่หัวคอลัมน์เพื่อเรียงลำดับ</p>
     </div>
     <div class="overflow-x-auto scrollbar-thin">
-      <table class="table-docs w-full min-w-[1040px] text-sm">
-        <thead class="border-b border-slate-100"><tr>
+      <table class="table-docs w-full min-w-[1120px] text-sm">
+        <thead class="thead-strong"><tr>
           ${th('docCode', 'รหัสเอกสาร', 'pl-4')}${th('title', 'ชื่อเอกสาร')}${th('dept', 'แผนก')}${th('rev', 'Revision')}
-          ${th('effectiveDate', 'วันที่บังคับใช้')}${th('', 'ไฟล์')}${th('author', 'ผู้จัดทำ')}
-          <th class="px-3 py-3 pr-4 text-right text-xs font-medium text-slate-500">จัดการไฟล์</th></tr></thead>
+          ${th('effectiveDate', 'วันที่บังคับใช้')}${th('submittedAt', 'ส่งเข้าระบบ')}${th('', 'ไฟล์')}${th('author', 'ผู้จัดทำ')}
+          <th class="sticky-col px-3 py-3 pr-4 text-right text-xs">จัดการไฟล์</th></tr></thead>
         <tbody class="divide-y divide-slate-100">
           ${rows.map((d) => {
             const revCount = S.docs.filter((x) => x.docCode === d.docCode).length;
             const future = d.effectiveDate > today;
             return `<tr>
-            <td class="px-3 py-3 pl-4 align-middle"><div class="flex items-center gap-2">${typeBadge(d.docType)}<span class="font-mono text-[13px] font-semibold text-slate-800">${highlight(d.docCode, tokens)}</span></div></td>
-            <td class="px-3 py-3 max-w-[280px]"><p class="truncate font-medium text-slate-700" title="${escapeHtml(d.title)}">${highlight(d.title, tokens)}</p>
+            <td class="px-3 py-3 pl-4 align-middle"><div class="flex items-center gap-2 whitespace-nowrap">${typeBadge(d.docType)}<span class="font-mono text-[13px] font-semibold text-slate-800">${highlight(d.docCode, tokens)}</span></div></td>
+            <td class="px-3 py-3 max-w-[260px]"><p class="truncate font-medium text-slate-700" title="${escapeHtml(d.title)}">${highlight(d.title, tokens)}</p>
               ${d.status === 'Obsolete' ? '<span class="mt-0.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">Rev เก่า (ไม่ใช้งาน)</span>' : ''}</td>
-            <td class="px-3 py-3"><span class="font-mono text-xs font-semibold text-slate-600">${d.dept}</span> <span class="text-xs text-slate-400">${escapeHtml(deptName(d.dept))}</span></td>
+            <td class="px-3 py-3 whitespace-nowrap"><span class="font-mono text-xs font-semibold text-slate-600">${d.dept}</span><span class="block max-w-[120px] truncate text-[11px] text-slate-400" title="${escapeHtml(deptName(d.dept))}">${escapeHtml(deptName(d.dept))}</span></td>
             <td class="px-3 py-3"><button class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[13px] text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="history" data-code="${escapeHtml(d.docCode)}" title="ดูประวัติ Revision">
               Rev.${escapeHtml(d.rev)}${revCount > 1 ? `<span class="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">${revCount}</span>` : ''}</button></td>
             <td class="px-3 py-3 whitespace-nowrap ${future ? 'text-amber-600' : 'text-slate-600'}">${formatDate(d.effectiveDate)}${future ? '<span class="block text-[11px] text-amber-500">ยังไม่ถึงวันบังคับใช้</span>' : ''}</td>
-            <td class="px-3 py-3"><button class="flex items-center gap-2 text-left" data-action="view" data-id="${d.id}" title="${escapeHtml(d.fileName)}">${fileIcon(d.fileName)}<span class="text-xs text-slate-400">${formatSize(d.fileSize)}</span></button></td>
+            <td class="px-3 py-3 whitespace-nowrap text-slate-600" title="ส่งเข้าระบบโดย ${escapeHtml(d.submitter || '-')}${d.createdAt && d.createdAt !== d.submittedAt ? ` · จัดเก็บเมื่อ ${formatDateTime(d.createdAt)}` : ''}">${formatDate(d.submittedAt)}<span class="block text-[11px] text-slate-400">${formatDateTime(d.submittedAt).slice(11)} น.</span></td>
+            <td class="px-3 py-3"><button class="flex items-center gap-2 text-left" data-action="view" data-id="${d.id}" title="${escapeHtml(d.fileName)}">${fileIcon(d.fileName)}<span class="whitespace-nowrap text-xs text-slate-400">${formatSize(d.fileSize)}</span></button></td>
             <td class="px-3 py-3 text-slate-600 whitespace-nowrap">${highlight(d.author, tokens)}</td>
-            <td class="px-3 py-2 pr-4"><div class="flex justify-end gap-0.5">
+            <td class="sticky-col px-3 py-2 pr-4"><div class="flex justify-end gap-0.5">
               <button class="icon-btn" data-action="view" data-id="${d.id}" title="เปิดดู">${icon('eye', 'h-[18px] w-[18px]')}</button>
               <button class="icon-btn" data-action="download" data-id="${d.id}" title="ดาวน์โหลด">${icon('download', 'h-[18px] w-[18px]')}</button>
               <button class="icon-btn" data-action="share" data-id="${d.id}" title="สร้างลิงก์ส่งต่อ">${icon('link', 'h-[18px] w-[18px]')}</button>
@@ -496,15 +497,16 @@ function renderPending() {
           <p class="mt-1 text-sm text-slate-500">ส่งลิงก์หน้าส่งไฟล์ให้ผู้อื่นเพื่อรับเอกสารเข้ามา</p>
           <button class="btn btn-ghost mt-4" data-action="copy-submit-link">${icon('link', 'h-4 w-4')}คัดลอกลิงก์หน้าส่งไฟล์</button></div>`;
   } else {
-    body = done.length ? `<div class="card overflow-x-auto scrollbar-thin"><table class="w-full min-w-[760px] text-sm">
-      <thead class="border-b border-slate-100 bg-slate-50 text-xs text-slate-500"><tr>
+    body = done.length ? `<div class="card overflow-x-auto scrollbar-thin"><table class="w-full min-w-[880px] text-sm">
+      <thead class="thead-strong text-xs"><tr>
         <th class="px-4 py-3 text-left font-medium">เลขอ้างอิง</th><th class="px-3 py-3 text-left font-medium">เอกสาร</th>
-        <th class="px-3 py-3 text-left font-medium">ผู้ส่ง</th><th class="px-3 py-3 text-left font-medium">ผลการตรวจ</th>
+        <th class="px-3 py-3 text-left font-medium">ผู้ส่ง</th><th class="px-3 py-3 text-left font-medium">ส่งเข้าระบบ</th><th class="px-3 py-3 text-left font-medium">ผลการตรวจ</th>
         <th class="px-3 py-3 text-left font-medium">วันที่ตรวจ</th><th class="px-3 py-3 text-left font-medium">หมายเหตุ</th></tr></thead>
       <tbody class="divide-y divide-slate-100">${done.map((s) => `<tr>
         <td class="px-4 py-3 font-mono text-xs text-slate-500">${escapeHtml(s.refNo)}</td>
         <td class="px-3 py-3"><p class="font-mono text-[13px] font-semibold text-slate-700">${escapeHtml(s.docCode)} <span class="font-normal text-slate-400">Rev.${escapeHtml(s.rev)}</span></p><p class="max-w-[240px] truncate text-xs text-slate-500">${escapeHtml(s.title)}</p></td>
         <td class="px-3 py-3 text-slate-600">${escapeHtml(s.submitter)}</td>
+        <td class="px-3 py-3 whitespace-nowrap text-slate-500">${formatDateTime(s.submittedAt)}</td>
         <td class="px-3 py-3">${s.status === 'Approved' ? '<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">อนุมัติแล้ว</span>' : '<span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">ตีกลับ</span>'}</td>
         <td class="px-3 py-3 whitespace-nowrap text-slate-500">${formatDateTime(s.reviewedAt)}</td>
         <td class="px-3 py-3 max-w-[260px] truncate text-slate-500" title="${escapeHtml(s.reviewNote)}">${escapeHtml(s.reviewNote || '-')}</td></tr>`).join('')}</tbody></table></div>`
@@ -534,7 +536,7 @@ function pendingCard(s) {
     <div class="mt-3 space-y-1 text-xs text-slate-500">
       <p>ส่งโดย <span class="text-slate-700">${escapeHtml(s.submitter)}</span>${s.contact ? ` · ${escapeHtml(s.contact)}` : ''}</p>
       <p>${formatDateTime(s.submittedAt)} (${timeAgo(s.submittedAt)})</p>
-      ${s.note ? `<p class="mt-2 rounded-lg bg-slate-50 p-2 text-slate-600">“${escapeHtml(s.note)}”</p>` : ''}
+      ${s.note ? `<div class="mt-2 rounded-lg bg-slate-50 p-2 text-slate-600"><p class="text-[11px] font-medium text-slate-400">เนื้อหาที่มีการแก้ไข</p><p class="mt-0.5 whitespace-pre-line">${escapeHtml(s.note)}</p></div>` : ''}
     </div>
     <div class="mt-auto flex items-center gap-2 pt-4">
       <button class="btn btn-ghost flex-1 !px-3" data-action="view-sub" data-id="${s.id}">${icon('eye', 'h-4 w-4')}ดูไฟล์</button>
@@ -578,12 +580,14 @@ function openReview(id) {
         <button type="button" class="btn btn-ghost !px-3 !py-1.5" data-action="view-sub" data-id="${s.id}">${icon('eye', 'h-4 w-4')}เปิดดู</button>
         <button type="button" class="icon-btn" data-action="download-sub" data-id="${s.id}" title="ดาวน์โหลด">${icon('download', 'h-[18px] w-[18px]')}</button>
       </div>
-      ${s.contact || s.note ? `<div class="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-        ${s.contact ? `<p><span class="text-slate-400">ติดต่อผู้ส่ง:</span> ${escapeHtml(s.contact)}</p>` : ''}
-        ${s.note ? `<p class="${s.contact ? 'mt-1' : ''}"><span class="text-slate-400">ข้อความจากผู้ส่ง:</span> ${escapeHtml(s.note)}</p>` : ''}</div>` : ''}
+      <div class="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+        <p><span class="text-slate-400">ส่งเข้าระบบเมื่อ:</span> ${formatDateTime(s.submittedAt)} น.</p>
+        ${s.contact ? `<p class="mt-1"><span class="text-slate-400">ติดต่อผู้ส่ง:</span> ${escapeHtml(s.contact)}</p>` : ''}</div>
       <p class="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400">ข้อมูลเอกสาร (แก้ไขได้ก่อนอนุมัติ)</p>
       ${docFieldsHtml(s, { prefix: 'rv-' })}
       <div class="rev-hint mt-3"></div>
+      <label class="mt-3 block"><span class="label">เนื้อหาที่มีการแก้ไข</span>
+        <textarea name="changeNote" rows="2" class="input" placeholder="เช่น ปรับรอบความถี่การ Swab / จัดทำใหม่">${escapeHtml(s.note || '')}</textarea></label>
       <label class="mt-4 block"><span class="label">หมายเหตุการตรวจสอบ <span class="font-normal text-slate-400">(จำเป็นเมื่อตีกลับ — ผู้ส่งจะเห็นข้อความนี้)</span></span>
         <textarea name="reviewNote" rows="2" class="input" placeholder="เช่น แก้ไขวันที่บังคับใช้ให้ถูกต้อง"></textarea></label>
       <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
@@ -601,7 +605,7 @@ function openReview(id) {
     const btn = form.querySelector('button[type=submit]');
     setBusy(btn, true, 'กำลังจัดเก็บ...');
     try {
-      const res = await API.call('approveSubmission', { id, data: readDocFields(form), note: form.reviewNote.value.trim() });
+      const res = await API.call('approveSubmission', { id, data: { ...readDocFields(form), note: form.changeNote.value.trim() }, note: form.reviewNote.value.trim() });
       closeModal();
       toast(`จัดเก็บ ${res.document.docCode} Rev.${res.document.rev} แล้ว${res.replaced && res.replaced.length ? ` (Rev.${res.replaced.join(', ')} ย้ายเป็นประวัติ)` : ''}`);
       await loadData(true);
@@ -644,6 +648,8 @@ function openDocForm(doc = null, preset = {}) {
         : `${dropZoneHtml('doc-drop', 'ตั้งชื่อไฟล์ตามรูปแบบ เช่น <span class="font-mono">SD-QA-11.01 Rev.03 แผนการ Swab Test.pdf</span> ระบบจะกรอกข้อมูลให้อัตโนมัติ')}<div class="h-4"></div>`}
       ${docFieldsHtml(d, { prefix: 'df-' })}
       <div class="rev-hint mt-3"></div>
+      <label class="mt-3 block"><span class="label">เนื้อหาที่มีการแก้ไข</span>
+        <textarea name="changeNote" rows="2" class="input" placeholder="เช่น ปรับรอบความถี่การ Swab / จัดทำใหม่">${escapeHtml(d.note || '')}</textarea></label>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
         <button type="submit" class="btn btn-primary">${icon(edit ? 'check' : 'upload', 'h-4 w-4')}${edit ? 'บันทึก' : 'อัปโหลดและจัดเก็บ'}</button>
@@ -669,11 +675,11 @@ function openDocForm(doc = null, preset = {}) {
     setBusy(btn, true, edit ? 'กำลังบันทึก...' : 'กำลังอัปโหลด...');
     try {
       if (edit) {
-        await API.call('updateDocument', { id: doc.id, data: readDocFields(form) });
+        await API.call('updateDocument', { id: doc.id, data: { ...readDocFields(form), note: form.changeNote.value.trim() } });
         toast('บันทึกการแก้ไขแล้ว');
       } else {
         const base64 = await fileToBase64(file);
-        const res = await API.call('addDocument', { data: readDocFields(form), file: { name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, base64 } });
+        const res = await API.call('addDocument', { data: { ...readDocFields(form), note: form.changeNote.value.trim() }, file: { name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, base64 } });
         toast(`จัดเก็บ ${res.document.docCode} Rev.${res.document.rev} แล้ว`);
       }
       closeModal();
@@ -707,7 +713,9 @@ function openHistory(code) {
               </div>
             </div>
             <p class="mt-1 text-sm text-slate-600">${escapeHtml(d.title)}</p>
-            <p class="mt-1 text-xs text-slate-400">บังคับใช้ ${formatDate(d.effectiveDate)} · ผู้จัดทำ ${escapeHtml(d.author)} · จัดเก็บ ${formatDate(d.createdAt)}</p>
+            <p class="mt-1 text-xs text-slate-400">บังคับใช้ ${formatDate(d.effectiveDate)} · ผู้จัดทำ ${escapeHtml(d.author)}</p>
+            <p class="mt-0.5 text-xs text-slate-400">ส่งเข้าระบบ ${formatDateTime(d.submittedAt)} น.${d.submitter ? ` โดย ${escapeHtml(d.submitter)}` : ''}</p>
+            ${d.note ? `<div class="mt-2 rounded-lg bg-white/70 p-2 text-xs text-slate-600 ring-1 ring-slate-100"><span class="font-medium text-slate-500">เนื้อหาที่มีการแก้ไข:</span> <span class="whitespace-pre-line">${escapeHtml(d.note)}</span></div>` : ''}
           </div>
         </li>`).join('')}
       </ol>

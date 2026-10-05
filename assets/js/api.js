@@ -98,7 +98,7 @@ const MockAPI = (() => {
         id: uuid(), docCode, docType, dept, docNo, rev, title, effectiveDate: eff, author: people[i % people.length],
         fileId: '', fileName: `${docCode} Rev.${rev} ${title}.pdf`, mimeType: 'application/pdf',
         fileSize: String(150000 + i * 53211), status: 'Active', submitter: people[(i + 2) % people.length],
-        createdAt: created, updatedAt: created, submissionId: '', note: '',
+        createdAt: created, updatedAt: created, submittedAt: created, submissionId: '', note: i === 0 ? 'ปรับรอบความถี่การ Swab และเพิ่มจุดตรวจบริเวณสายพาน' : '',
       };
     });
     const t = now();
@@ -120,6 +120,10 @@ const MockAPI = (() => {
   const load = () => {
     const db = storageGet(KEY) || (() => { const d = seed(); storageSet(KEY, d); return d; })();
     if (!db.options) db.options = DEFAULT_OPTIONS.map((o) => ({ ...o })); // ข้อมูลทดลองรุ่นเก่า
+    if (!db.migratedAP) { // เพิ่มประเภท AP ให้ข้อมูลทดลองที่สร้างไว้ก่อนหน้า
+      if (!db.options.some((o) => o.kind === 'type' && o.code === 'AP')) db.options.push({ ...DEFAULT_OPTIONS.find((o) => o.code === 'AP') });
+      db.migratedAP = true;
+    }
     return db;
   };
   const save = (db) => storageSet(KEY, db);
@@ -275,7 +279,7 @@ const MockAPI = (() => {
       const t = now();
       const doc = {
         id: uuid(), ...d, fileId: sub.fileId, fileName: fileName(d, sub.fileName), mimeType: sub.mimeType, fileSize: sub.fileSize,
-        status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submissionId: sub.id, note: req.note || sub.note || '',
+        status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submittedAt: sub.submittedAt, submissionId: sub.id, note: String((req.data && req.data.note) ?? sub.note ?? '').trim(),
       };
       db.docs.push(doc);
       Object.assign(sub, d, { status: 'Approved', reviewedAt: t, reviewNote: req.note || '' });
@@ -307,7 +311,7 @@ const MockAPI = (() => {
       const t = now();
       const doc = {
         id: uuid(), ...d, fileId: putFile(req.file), fileName: fileName(d, req.file.name), mimeType: req.file.mimeType,
-        fileSize: String(req.file.size || 0), status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submissionId: '', note: '',
+        fileSize: String(req.file.size || 0), status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submittedAt: t, submissionId: '', note: String(req.data.note || '').trim(),
       };
       db.docs.push(doc);
       const replaced = recalc(db, d.docCode);
@@ -325,6 +329,7 @@ const MockAPI = (() => {
       dupCheck(db, d, doc.id);
       const oldCode = doc.docCode;
       Object.assign(doc, d, { fileName: fileName(d, doc.fileName), updatedAt: now() });
+      if (req.data.note !== undefined) doc.note = String(req.data.note).trim();
       recalc(db, oldCode);
       recalc(db, d.docCode);
       log(db, 'UPDATE', d.docCode, d.rev, 'แก้ไขข้อมูลเอกสาร');

@@ -1,4 +1,6 @@
-# DocControl — ระบบจัดเก็บและควบคุมเอกสารองค์กร
+# DCC — Document Control Center
+
+ระบบจัดเก็บและควบคุมเอกสารองค์กร
 
 ระบบเล็ก ๆ สำหรับรับเอกสารจากผู้อื่น ตรวจสอบ แล้วจัดเก็บอย่างเป็นระเบียบ ค้นหาเร็ว และส่งต่อไฟล์ได้ง่าย
 
@@ -11,14 +13,14 @@
 | หน้า | รายละเอียด |
 |---|---|
 | **ภาพรวม (Dashboard)** | จำนวนเอกสารที่ใช้งาน, งานรอตรวจ, เอกสารเพิ่มเดือนนี้, พื้นที่ที่ใช้, กราฟแยกแผนก/ประเภท, ตารางสรุปแผนก × ประเภท, เอกสารที่จะเริ่มบังคับใช้, กิจกรรมล่าสุด |
-| **เอกสารทั้งหมด** | ช่องค้นหา (กด `/` เพื่อค้นหาได้ทันที), Filter ประเภท/แผนก/สถานะ, เรียงคอลัมน์ได้, ไฮไลต์คำค้น · คอลัมน์: รหัสเอกสาร, ชื่อเอกสาร, แผนก, Revision, วันที่บังคับใช้, ไฟล์, ผู้จัดทำ, จัดการไฟล์ (เปิดดู / ดาวน์โหลด / สร้างลิงก์ส่งต่อ / แก้ไข / ลบ) |
+| **เอกสารทั้งหมด** | ช่องค้นหา (กด `/` เพื่อค้นหาได้ทันที), Filter ประเภท/แผนก/สถานะ, เรียงคอลัมน์ได้, ไฮไลต์คำค้น · คอลัมน์: รหัสเอกสาร, ชื่อเอกสาร, แผนก, Revision, วันที่บังคับใช้, ส่งเข้าระบบ (วันที่และเวลา), ไฟล์, ผู้จัดทำ, จัดการไฟล์ (เปิดดู / ดาวน์โหลด / สร้างลิงก์ส่งต่อ / แก้ไข / ลบ) |
 | **รอตรวจสอบ** | รายการที่ผู้อื่นส่งมา → เปิดดูไฟล์ → แก้ข้อมูลได้ → **อนุมัติและจัดเก็บ** หรือ **ตีกลับ** พร้อมเหตุผล · มีแท็บประวัติการตรวจ |
 | **ตั้งค่าแผนก/ประเภท** | เพิ่ม แก้ไข ปิดใช้งาน หรือลบ แผนกและประเภทเอกสารได้เองในระบบ |
 | **ประวัติ Revision** | คลิกที่ Rev ในตาราง เพื่อดู/โหลด Rev เก่าทั้งหมด และเพิ่ม Rev ใหม่ |
 | **หน้าส่งเอกสาร** (`submit.html`) | สำหรับผู้อื่น ไม่ต้อง Login · แบ่งเป็นขั้นตอน: ① กล่องใหญ่สำหรับลากไฟล์มาวาง (วางตรงไหนของหน้าก็ได้) → ② กรอกข้อมูล (ระบบกรอกจากชื่อไฟล์ให้อัตโนมัติ) → ③ ได้เลขอ้างอิงไว้ติดตามสถานะ |
 
 **รูปแบบรหัสเอกสาร:** `ประเภท-แผนก-เลขที่` เช่น `SD-QA-11.01`
-- ประเภท: `QP` Quality Procedure, `WI` Work Instruction, `SD` Supporting Document, `FM` Form
+- ประเภท: `QP` Quality Procedure, `WI` Work Instruction, `SD` Supporting Document, `FM` Form, `AP` Annual Plan
 - แผนก: `PD` Production, `QC` Quality Control, `QA` Quality Assurance, `MT` Maintenance, `RD` Research and Development, `HR` Human Resource, `ST` Store
 - Revision: `Rev.00`, `Rev.01`, `Rev.02`, ...
 
@@ -42,13 +44,13 @@
 ### ขั้นที่ 1 — สร้าง Backend บน Google Apps Script
 
 1. เข้า <https://script.google.com> ด้วยบัญชี Google ที่จะใช้เก็บไฟล์ แล้วกด **New project**
-2. ตั้งชื่อโปรเจกต์ เช่น `DocControl API`
+2. ตั้งชื่อโปรเจกต์ เช่น `DCC API`
 3. ลบโค้ดเดิมใน `Code.gs` แล้ว **วางโค้ดจากไฟล์ [`backend/Code.gs`](backend/Code.gs)** จากนั้นกด Save
 4. (แนะนำ) ไปที่ ⚙️ **Project Settings** → ติ๊ก *Show "appsscript.json" manifest file* → เปิด `appsscript.json` แล้ววางเนื้อหาจาก [`backend/appsscript.json`](backend/appsscript.json) (ตั้งเขตเวลาเป็นไทย)
 5. เลือกฟังก์ชัน **`setup`** ที่แถบด้านบน แล้วกด **Run**
-   - ครั้งแรก Google จะขอสิทธิ์ → *Review permissions* → เลือกบัญชี → *Advanced* → *Go to DocControl API (unsafe)* → *Allow*
+   - ครั้งแรก Google จะขอสิทธิ์ → *Review permissions* → เลือกบัญชี → *Advanced* → *Go to DCC API (unsafe)* → *Allow*
    - (ขึ้นคำว่า unsafe เพราะเป็นสคริปต์ที่เราเขียนเอง ยังไม่ได้ผ่านการรับรองจาก Google)
-   - เมื่อเสร็จ ระบบจะสร้างโฟลเดอร์ `DocControl` ใน Google Drive พร้อม Spreadsheet ฐานข้อมูล
+   - เมื่อเสร็จ ระบบจะสร้างโฟลเดอร์ `DCC` ใน Google Drive พร้อม Spreadsheet ฐานข้อมูล
 6. กด **Deploy → New deployment**
    - ⚙️ Select type: **Web app**
    - Execute as: **Me**
@@ -90,8 +92,8 @@ window.APP_CONFIG = {
 ## โครงสร้างไฟล์ใน Google Drive
 
 ```
-DocControl/
-├── DocControl Database        ← Google Sheets (Documents / Submissions / Logs)
+DCC/
+├── DCC Database        ← Google Sheets (Documents / Submissions / Logs)
 ├── 01 รอตรวจสอบ (Pending)     ← ไฟล์ที่ผู้อื่นส่งมา รอคุณตรวจ
 ├── 02 เอกสารใช้งาน (Active)
 │   ├── PD/ QC/ QA/ MT/ RD/ HR/ ST/

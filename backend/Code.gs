@@ -1,6 +1,6 @@
 /**
  * =============================================================
- *  DocControl — Backend (Google Apps Script)
+ *  DCC (Document Control Center) — Backend (Google Apps Script)
  *  ไฟล์เก็บใน Google Drive / ข้อมูลเก็บใน Google Sheets
  * -------------------------------------------------------------
  *  วิธีติดตั้ง (ดูรายละเอียดใน README.md)
@@ -14,7 +14,7 @@
  */
 
 const APP = {
-  ROOT_FOLDER: 'DocControl',
+  ROOT_FOLDER: 'DCC',
   DEFAULT_PASSWORD: 'admin1234',
   SESSION_SECONDS: 6 * 60 * 60, // อยู่ในระบบได้ 6 ชั่วโมง
   MAX_FILE_MB: 25,
@@ -26,6 +26,7 @@ const DEFAULT_OPTIONS = [
   ['type', 'WI', 'Work Instruction', 'วิธีปฏิบัติงาน', 'sky'],
   ['type', 'SD', 'Supporting Document', 'เอกสารสนับสนุน', 'teal'],
   ['type', 'FM', 'Form', 'แบบฟอร์ม', 'amber'],
+  ['type', 'AP', 'Annual Plan', 'แผนงานประจำปี', 'violet'],
   ['dept', 'PD', 'Production', 'ฝ่ายผลิต', ''],
   ['dept', 'QC', 'Quality Control', 'ฝ่ายควบคุมคุณภาพ', ''],
   ['dept', 'QA', 'Quality Assurance', 'ฝ่ายประกันคุณภาพ', ''],
@@ -41,7 +42,7 @@ const T = {
   DOCS: {
     name: 'Documents',
     headers: ['id', 'docCode', 'docType', 'dept', 'docNo', 'rev', 'title', 'effectiveDate', 'author', 'fileId', 'fileName',
-      'mimeType', 'fileSize', 'status', 'submitter', 'createdAt', 'updatedAt', 'submissionId', 'note'],
+      'mimeType', 'fileSize', 'status', 'submitter', 'createdAt', 'updatedAt', 'submissionId', 'note', 'submittedAt'],
   },
   SUBS: {
     name: 'Submissions',
@@ -62,7 +63,7 @@ function setup() {
   const root = rootFolder_();
   let ssId = props.getProperty('SPREADSHEET_ID');
   if (!ssId) {
-    const ss = SpreadsheetApp.create('DocControl Database');
+    const ss = SpreadsheetApp.create('DCC Database');
     ssId = ss.getId();
     props.setProperty('SPREADSHEET_ID', ssId);
     DriveApp.getFileById(ssId).moveTo(root);
@@ -95,7 +96,7 @@ function resetPassword() {
  * ============================================================= */
 
 function doGet() {
-  return out_({ ok: true, data: { service: 'DocControl API', time: now_() } });
+  return out_({ ok: true, data: { service: 'DCC API', time: now_() } });
 }
 
 function doPost(e) {
@@ -259,7 +260,8 @@ function approveSubmission_(req) {
     const t = now_();
     const doc = Object.assign({}, d, {
       id: Utilities.getUuid(), fileId: sub.fileId, fileName: file.getName(), mimeType: sub.mimeType, fileSize: sub.fileSize,
-      status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submissionId: sub.id, note: str_(req.note) || sub.note,
+      status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submittedAt: sub.submittedAt, submissionId: sub.id,
+      note: req.data && req.data.note !== undefined ? str_(req.data.note) : sub.note, // เนื้อหาที่มีการแก้ไข
     });
     insert_(T.DOCS, doc);
     update_(T.SUBS, sub, Object.assign({}, d, { status: 'Approved', reviewedAt: t, reviewNote: str_(req.note) }));
@@ -292,7 +294,7 @@ function addDocument_(req) {
     const t = now_();
     const doc = Object.assign({}, d, {
       id: Utilities.getUuid(), fileId: file.getId(), fileName: file.getName(), mimeType: file.getMimeType(), fileSize: file.getSize(),
-      status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submissionId: '', note: '',
+      status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submittedAt: t, submissionId: '', note: str_((req.data || {}).note),
     });
     insert_(T.DOCS, doc);
     const replaced = recalcStatus_(d.docCode);
@@ -308,6 +310,7 @@ function updateDocument_(req) {
     if (!doc) fail_('ไม่พบเอกสาร');
     dupCheck_(d, doc.id);
     const patch = Object.assign({}, d, { fileName: fileName_(d, doc.fileName), updatedAt: now_() });
+    if (req.data.note !== undefined) patch.note = str_(req.data.note);
     try {
       const file = DriveApp.getFileById(doc.fileId);
       file.setName(patch.fileName);
@@ -363,7 +366,17 @@ function shareFile_(req) {
 
 function options_() {
   let rows = readAll_(T.OPTIONS);
+  const props = PropertiesService.getScriptProperties();
+  if (rows.length && !props.getProperty('MIGRATED_AP')) {
+    // ระบบที่ติดตั้งก่อนมีประเภท AP → เพิ่มให้ครั้งเดียว (ถ้าลบทิ้งภายหลังจะไม่ถูกเพิ่มกลับ)
+    if (!rows.some((o) => o.kind === 'type' && o.code === 'AP')) {
+      insert_(T.OPTIONS, { kind: 'type', code: 'AP', name: 'Annual Plan', th: 'แผนงานประจำปี', color: 'violet', active: 'TRUE' });
+      rows = readAll_(T.OPTIONS);
+    }
+    props.setProperty('MIGRATED_AP', '1');
+  }
   if (!rows.length) {
+    props.setProperty('MIGRATED_AP', '1');
     DEFAULT_OPTIONS.forEach((r) => insert_(T.OPTIONS, { kind: r[0], code: r[1], name: r[2], th: r[3], color: r[4], active: 'TRUE' }));
     rows = readAll_(T.OPTIONS);
   }
@@ -520,9 +533,16 @@ function sheet_(t) {
     sh = db_().insertSheet(t.name);
     sh.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#f1f5f9');
     sh.setFrozenRows(1);
+  } else if (!SHEET_CHECKED_[t.name]) {
+    // ระบบเวอร์ชันใหม่เพิ่มคอลัมน์ต่อท้าย → เติมหัวคอลัมน์ให้ชีตเดิมอัตโนมัติ
+    if (sh.getLastColumn() < t.headers.length) {
+      sh.getRange(1, 1, 1, t.headers.length).setValues([t.headers]).setFontWeight('bold').setBackground('#f1f5f9');
+    }
   }
+  SHEET_CHECKED_[t.name] = true;
   return sh;
 }
+const SHEET_CHECKED_ = {};
 
 function readAll_(t) {
   const sh = sheet_(t);

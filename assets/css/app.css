@@ -63,7 +63,12 @@ html .nav-link { display: flex; align-items: center; gap: .65rem; border-radius:
 html .nav-link:hover { background: #f1f5f9; color: #0f172a; }
 html .nav-link.active { background: #f0fdfa; color: var(--brand-dark); font-weight: 600; }
 
-.table-docs th { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
+.table-docs th { position: sticky; top: 0; z-index: 1; }
+/* หัวคอลัมน์ตาราง: เน้นสีให้เด่น */
+html .thead-strong th { background: #e6f4f1; color: #134e4a; font-weight: 600; border-bottom: 2px solid #99d5cb; white-space: nowrap; }
+html .thead-strong th button { color: inherit; font-weight: 600; }
+html .thead-strong th button:hover { color: #0f766e; }
+html .thead-strong th.sorted { background: #d3ede8; }
 .table-docs tbody tr { transition: background-color .1s; }
 .table-docs tbody tr:hover { background: #f8fafc; }
 
@@ -101,3 +106,8 @@ html .switch { position: relative; width: 2.25rem; height: 1.25rem; flex-shrink:
 html .switch span { position: absolute; top: .125rem; left: .125rem; width: 1rem; height: 1rem; border-radius: 999px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
 html .switch.on { background: var(--brand); }
 html .switch.on span { transform: translateX(1rem); }
+
+/* คอลัมน์ปุ่มจัดการไฟล์ติดขวาเสมอ เมื่อตารางเลื่อนแนวนอน */
+html .table-docs .sticky-col { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .12); }
+html .table-docs thead .sticky-col { background: #e6f4f1; z-index: 3; }
+html .table-docs tbody tr:hover .sticky-col { background: #f8fafc; }
