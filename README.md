@@ -43,21 +43,29 @@
 
 ### ขั้นที่ 1 — สร้าง Backend บน Google Apps Script
 
-1. เข้า <https://script.google.com> ด้วยบัญชี Google ที่จะใช้เก็บไฟล์ แล้วกด **New project**
-2. ตั้งชื่อโปรเจกต์ เช่น `DCC API`
-3. ลบโค้ดเดิมใน `Code.gs` แล้ว **วางโค้ดจากไฟล์ [`backend/Code.gs`](backend/Code.gs)** จากนั้นกด Save
-4. (แนะนำ) ไปที่ ⚙️ **Project Settings** → ติ๊ก *Show "appsscript.json" manifest file* → เปิด `appsscript.json` แล้ววางเนื้อหาจาก [`backend/appsscript.json`](backend/appsscript.json) (ตั้งเขตเวลาเป็นไทย)
-5. เลือกฟังก์ชัน **`setup`** ที่แถบด้านบน แล้วกด **Run**
-   - ครั้งแรก Google จะขอสิทธิ์ → *Review permissions* → เลือกบัญชี → *Advanced* → *Go to DCC API (unsafe)* → *Allow*
-   - (ขึ้นคำว่า unsafe เพราะเป็นสคริปต์ที่เราเขียนเอง ยังไม่ได้ผ่านการรับรองจาก Google)
-   - เมื่อเสร็จ ระบบจะสร้างโฟลเดอร์ `DCC` ใน Google Drive พร้อม Spreadsheet ฐานข้อมูล
-6. กด **Deploy → New deployment**
-   - ⚙️ Select type: **Web app**
-   - Execute as: **Me**
-   - Who has access: **Anyone**
-   - กด **Deploy** แล้ว **คัดลอก Web app URL** (ลงท้ายด้วย `/exec`)
+> ชื่อปุ่มเขียนเป็น **ภาษาอังกฤษ / ภาษาไทย** (ถ้าบัญชี Google ตั้งเป็นภาษาไทย หน้าจอจะแสดงคำภาษาไทย ถ้อยคำอาจต่างเล็กน้อยตามรุ่นของ Google)
 
-> ทุกครั้งที่แก้โค้ดใน Apps Script ต้อง **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy** จึงจะมีผล (URL เดิม)
+1. เข้า <https://script.google.com> ด้วยบัญชี Google ที่จะใช้เก็บไฟล์ แล้วกด **New project / โปรเจ็กต์ใหม่** (ปุ่ม ＋ มุมซ้ายบน)
+2. คลิกชื่อ "Untitled project / โปรเจ็กต์ที่ไม่มีชื่อ" ด้านบน แล้วตั้งชื่อ เช่น `DCC API`
+3. ลบโค้ดเดิมใน `Code.gs` แล้ว **วางโค้ดจากไฟล์ [`backend/Code.gs`](backend/Code.gs)** จากนั้นกดไอคอนแผ่นดิสก์ **Save / บันทึกโปรเจ็กต์** (หรือ Ctrl+S)
+4. (แนะนำ) ตั้งเขตเวลาเป็นไทย:
+   - กดไอคอนฟันเฟือง ⚙️ แถบซ้าย **Project Settings / การตั้งค่าโปรเจ็กต์**
+   - ติ๊ก **Show "appsscript.json" manifest file in editor / แสดงไฟล์ Manifest "appsscript.json" ในเครื่องมือแก้ไข**
+   - กลับไปไอคอน `< >` **Editor / เครื่องมือแก้ไข** → เปิด `appsscript.json` → วางเนื้อหาจาก [`backend/appsscript.json`](backend/appsscript.json) → บันทึก
+5. ที่แถบด้านบน เลือกฟังก์ชัน **`setup`** ในช่องรายการ (ข้างปุ่ม Debug / แก้ไขข้อบกพร่อง) แล้วกด ▷ **Run / เรียกใช้**
+   - ครั้งแรกจะขึ้น **Authorization required / ต้องมีการให้สิทธิ์** → กด **Review permissions / ตรวจสอบสิทธิ์** → เลือกบัญชี Google ของคุณ
+   - ขึ้นหน้า **Google hasn't verified this app / Google ไม่ได้ยืนยันแอปนี้** → กด **Advanced / ขั้นสูง** (ลิงก์เล็กมุมซ้ายล่าง) → กด **Go to DCC API (unsafe) / ไปที่ DCC API (ไม่ปลอดภัย)** → กด **Allow / อนุญาต**
+   - (ขึ้นคำว่าไม่ปลอดภัย เพราะเป็นสคริปต์ที่เราเขียนเอง ยังไม่ได้ส่งให้ Google รับรอง สคริปต์นี้เข้าถึงได้เฉพาะ Drive และ Sheets ของคุณเอง)
+   - ดูผลที่ **Execution log / บันทึกการดำเนินการ** ด้านล่าง ต้องขึ้น `✅ ตั้งค่าเสร็จแล้ว` และลิงก์โฟลเดอร์ `DCC` ใน Google Drive
+6. กดปุ่มสีน้ำเงินมุมขวาบน **Deploy / การทำให้ใช้งานได้** → **New deployment / การทำให้ใช้งานได้รายการใหม่**
+   - กดฟันเฟือง ⚙️ ข้าง **Select type / เลือกประเภท** → เลือก **Web app / เว็บแอป**
+   - **Execute as / ดำเนินการในฐานะ**: **Me / ฉัน** (อีเมลของคุณ)
+   - **Who has access / ผู้ที่มีสิทธิ์เข้าถึง**: **Anyone / ทุกคน** (ไม่ใช่ "ทุกคนที่มีบัญชี Google")
+   - กด **Deploy / ทำให้ใช้งานได้** แล้วกด **Copy / คัดลอก** ที่ช่อง **Web app URL / URL ของเว็บแอป** (ลงท้ายด้วย `/exec`)
+
+> ทุกครั้งที่แก้โค้ดใน Apps Script ต้องกด **Deploy / การทำให้ใช้งานได้ → Manage deployments / จัดการการทำให้ใช้งานได้ → ✏️ Edit / แก้ไข → Version / เวอร์ชัน: New version / เวอร์ชันใหม่ → Deploy / ทำให้ใช้งานได้** จึงจะมีผล (URL เดิมไม่เปลี่ยน)
+>
+> ⚠️ อย่ากด "New deployment / การทำให้ใช้งานได้รายการใหม่" ซ้ำตอนอัปเดตโค้ด เพราะจะได้ URL ใหม่ ต้องไปแก้ `config.js` อีกรอบ
 
 ### ขั้นที่ 2 — ตั้งค่า Frontend
 
@@ -85,7 +93,7 @@ window.APP_CONFIG = {
 ### ขั้นที่ 4 — เปลี่ยนรหัสผ่าน
 
 เข้าสู่ระบบด้วย `admin1234` แล้วไปที่เมนู **เปลี่ยนรหัสผ่าน** ทันที
-ถ้าลืมรหัสผ่าน ให้เข้า Apps Script แล้ว Run ฟังก์ชัน `resetPassword` ระบบจะรีเซ็ตกลับเป็น `admin1234`
+ถ้าลืมรหัสผ่าน ให้เข้า Apps Script แล้วเลือกฟังก์ชัน `resetPassword` แล้วกด Run / เรียกใช้ ระบบจะรีเซ็ตกลับเป็น `admin1234`
 
 ---
 
