@@ -52,7 +52,7 @@
    - กดไอคอนฟันเฟือง ⚙️ แถบซ้าย **Project Settings / การตั้งค่าโปรเจ็กต์**
    - ติ๊ก **Show "appsscript.json" manifest file in editor / แสดงไฟล์ Manifest "appsscript.json" ในเครื่องมือแก้ไข**
    - กลับไปไอคอน `< >` **Editor / เครื่องมือแก้ไข** → เปิด `appsscript.json` → วางเนื้อหาจาก [`backend/appsscript.json`](backend/appsscript.json) → บันทึก
-5. ที่แถบด้านบน เลือกฟังก์ชัน **`setup`** ในช่องรายการ (ข้างปุ่ม Debug / แก้ไขข้อบกพร่อง) แล้วกด ▷ **Run / เรียกใช้**
+5. ที่แถบด้านบน เลือกฟังก์ชัน **`setup`** ในช่องรายการ (ข้างปุ่ม Debug / แก้ปัญหา) แล้วกด ▷ **Run / เรียกใช้**
    - ครั้งแรกจะขึ้น **Authorization required / ต้องมีการให้สิทธิ์** → กด **Review permissions / ตรวจสอบสิทธิ์** → เลือกบัญชี Google ของคุณ
    - ขึ้นหน้า **Google hasn't verified this app / Google ไม่ได้ยืนยันแอปนี้** → กด **Advanced / ขั้นสูง** (ลิงก์เล็กมุมซ้ายล่าง) → กด **Go to DCC API (unsafe) / ไปที่ DCC API (ไม่ปลอดภัย)** → กด **Allow / อนุญาต**
    - (ขึ้นคำว่าไม่ปลอดภัย เพราะเป็นสคริปต์ที่เราเขียนเอง ยังไม่ได้ส่งให้ Google รับรอง สคริปต์นี้เข้าถึงได้เฉพาะ Drive และ Sheets ของคุณเอง)
