@@ -116,7 +116,7 @@ function escapeHtml(s) {
 function formatDate(iso) {
   if (!iso) return '-';
   const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : escapeHtml(iso);
 }
 
 function formatDateTime(iso) {
@@ -308,6 +308,12 @@ function fileToBase64(file) {
     r.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
     r.readAsDataURL(file);
   });
+}
+
+/** ชนิดไฟล์ที่ปลอดภัยตามนามสกุล (ไม่เชื่อชนิดไฟล์ที่ผู้ส่งแจ้งมา เพื่อกันไฟล์ HTML แฝงมาเปิดใน Browser) */
+const SAFE_MIME = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', txt: 'text/plain;charset=utf-8' };
+function safeMime(name) {
+  return SAFE_MIME[fileExt(name)] || 'application/octet-stream';
 }
 
 function base64ToBlob(b64, mime) {

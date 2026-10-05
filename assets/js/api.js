@@ -234,7 +234,7 @@ const MockAPI = (() => {
       if (req.password !== db.password) fail('รหัสผ่านไม่ถูกต้อง');
       const token = uuid();
       storageSet('dc_demo_session', token);
-      return { token };
+      return { token, mustChangePassword: db.password === 'admin1234' };
     },
 
     submit(req) {
@@ -243,8 +243,9 @@ const MockAPI = (() => {
       if (!String(req.data.submitter || '').trim()) fail('กรุณาระบุชื่อผู้ส่ง');
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
       if (db.docs.some((x) => x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
+      if (db.subs.filter((x) => x.status === 'Pending').length >= 100) fail('มีเอกสารรอตรวจสอบจำนวนมาก ระบบปิดรับชั่วคราว กรุณาติดต่อผู้ดูแลเอกสาร');
       if (db.subs.some((x) => x.status === 'Pending' && x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} ถูกส่งมาแล้วและกำลังรอตรวจสอบ`);
-      const refNo = `SUB-${now().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      const refNo = `SUB-${now().slice(2, 10).replace(/-/g, '')}-${uuid().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
       db.subs.push({
         id: uuid(), refNo, ...d, submitter: req.data.submitter.trim(), contact: (req.data.contact || '').trim(),
         fileId: putFile(req.file), fileName: req.file.name, mimeType: req.file.mimeType, fileSize: String(req.file.size || 0),
@@ -376,7 +377,8 @@ const MockAPI = (() => {
       auth(req);
       const db = load();
       if (req.oldPassword !== db.password) fail('รหัสผ่านเดิมไม่ถูกต้อง');
-      if (String(req.newPassword || '').length < 6) fail('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+      if (String(req.newPassword || '').length < 8) fail('รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร');
+      if (req.newPassword === 'admin1234') fail('ห้ามใช้รหัสผ่านเริ่มต้น');
       db.password = req.newPassword;
       save(db);
       return true;

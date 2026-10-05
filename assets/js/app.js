@@ -78,11 +78,12 @@ async function onLogin(e) {
   const btn = e.target.querySelector('button[type=submit]');
   setBusy(btn, true, 'กำลังตรวจสอบ...');
   try {
-    const { token } = await API.call('login', { password: e.target.password.value });
+    const { token, mustChangePassword } = await API.call('login', { password: e.target.password.value });
     API.token = token;
     e.target.reset();
     showApp();
     await loadData();
+    if (mustChangePassword) openChangePassword(true);
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -245,7 +246,7 @@ function renderDashboard() {
         ${byDept.map(({ k, n }) => `
           <button class="group flex w-full items-center gap-3 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50" data-action="goto-dept" data-dept="${k}">
             <span class="w-9 font-mono text-xs font-semibold text-slate-600">${k}</span>
-            <span class="hidden w-36 truncate text-sm text-slate-500 sm:block">${DEPTS[k].th}</span>
+            <span class="hidden w-36 truncate text-sm text-slate-500 sm:block">${escapeHtml(DEPTS[k].th)}</span>
             <span class="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100"><span class="block h-full rounded-full bg-teal-500/80 transition-all group-hover:bg-teal-600" style="width:${(n / maxDept) * 100}%"></span></span>
             <span class="w-8 text-right text-sm font-semibold tabular-nums text-slate-700">${n}</span>
           </button>`).join('')}
@@ -262,7 +263,7 @@ function renderDashboard() {
         ${byType.map(({ k, n }) => `
           <button class="rounded-xl border border-slate-100 p-3 text-left hover:border-teal-200 hover:bg-teal-50/30" data-action="goto-type" data-type="${k}">
             <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full ${DOC_TYPES[k].bar}"></span><span class="text-sm font-semibold text-slate-700">${k}</span></div>
-            <p class="mt-1 truncate text-xs text-slate-400">${DOC_TYPES[k].name}</p>
+            <p class="mt-1 truncate text-xs text-slate-400">${escapeHtml(DOC_TYPES[k].name)}</p>
             <p class="mt-1 text-lg font-semibold text-slate-800">${n} <span class="text-xs font-normal text-slate-400">${active.length ? Math.round((n / active.length) * 100) : 0}%</span></p>
           </button>`).join('')}
       </div>
@@ -282,7 +283,7 @@ function renderDashboard() {
           ${deptKeys.map((dp) => {
             const row = typeKeys.map((t) => active.filter((d) => d.dept === dp && d.docType === t).length);
             const sum = row.reduce((a, b) => a + b, 0);
-            return `<tr><td class="px-3 py-2"><span class="font-mono text-xs font-semibold text-slate-700">${dp}</span> <span class="text-slate-500">${DEPTS[dp].th}</span></td>
+            return `<tr><td class="px-3 py-2"><span class="font-mono text-xs font-semibold text-slate-700">${dp}</span> <span class="text-slate-500">${escapeHtml(DEPTS[dp].th)}</span></td>
               ${row.map((n, i) => `<td class="px-2 py-1 text-center">${n ? `<button class="min-w-[2rem] rounded-md px-2 py-1 font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700" data-action="goto-cell" data-dept="${dp}" data-type="${typeKeys[i]}">${n}</button>` : '<span class="text-slate-300">–</span>'}</td>`).join('')}
               <td class="px-2 py-1 text-center font-semibold text-slate-800">${sum}</td></tr>`;
           }).join('')}
@@ -759,7 +760,7 @@ async function viewFile(kind, id) {
   if (w) w.document.write('<p style="font-family:sans-serif;color:#64748b;padding:24px">กำลังโหลดไฟล์...</p>');
   try {
     const f = await fetchFile(kind, id, false);
-    const url = URL.createObjectURL(base64ToBlob(f.base64, f.mimeType));
+    const url = URL.createObjectURL(base64ToBlob(f.base64, safeMime(f.name)));
     if (w) w.location.href = url;
     else window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -773,7 +774,7 @@ async function downloadFile(kind, id) {
   toast('กำลังเตรียมไฟล์...', 'info');
   try {
     const f = await fetchFile(kind, id, true);
-    const url = URL.createObjectURL(base64ToBlob(f.base64, f.mimeType));
+    const url = URL.createObjectURL(base64ToBlob(f.base64, safeMime(f.name)));
     const a = document.createElement('a');
     a.href = url;
     a.download = f.name;
@@ -831,13 +832,14 @@ async function deleteDoc(id) {
   }
 }
 
-function openChangePassword() {
+function openChangePassword(forced = false) {
   const root = openModal(`
     ${modalHeader('เปลี่ยนรหัสผ่าน')}
     <form class="space-y-3 p-5">
+      ${forced ? `<div class="flex gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">${icon('warning', 'h-5 w-5 shrink-0')}<p>คุณยังใช้รหัสผ่านเริ่มต้นอยู่ ซึ่งใคร ๆ ก็เดาได้ กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน</p></div>` : ''}
       <label class="block"><span class="label">รหัสผ่านเดิม</span><input type="password" name="old" class="input" required autocomplete="current-password"></label>
-      <label class="block"><span class="label">รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)</span><input type="password" name="new1" class="input" required minlength="6" autocomplete="new-password"></label>
-      <label class="block"><span class="label">ยืนยันรหัสผ่านใหม่</span><input type="password" name="new2" class="input" required minlength="6" autocomplete="new-password"></label>
+      <label class="block"><span class="label">รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</span><input type="password" name="new1" class="input" required minlength="8" autocomplete="new-password"></label>
+      <label class="block"><span class="label">ยืนยันรหัสผ่านใหม่</span><input type="password" name="new2" class="input" required minlength="8" autocomplete="new-password"></label>
       <div class="flex justify-end gap-2 pt-2"><button type="button" class="btn btn-ghost" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`, { size: 'max-w-md' });
   root.querySelector('form').addEventListener('submit', async (e) => {
@@ -847,9 +849,10 @@ function openChangePassword() {
     const btn = f.querySelector('button[type=submit]');
     setBusy(btn, true);
     try {
-      await API.call('changePassword', { oldPassword: f.old.value, newPassword: f.new1.value });
+      const res = await API.call('changePassword', { oldPassword: f.old.value, newPassword: f.new1.value });
+      if (res && res.token) API.token = res.token; // เครื่องอื่นที่ Login ค้างไว้จะถูกออกจากระบบ
       closeModal();
-      toast('เปลี่ยนรหัสผ่านแล้ว');
+      toast('เปลี่ยนรหัสผ่านแล้ว อุปกรณ์อื่นที่เคย Login จะต้องเข้าสู่ระบบใหม่');
     } catch (err) {
       toast(err.message, 'error');
       setBusy(btn, false);

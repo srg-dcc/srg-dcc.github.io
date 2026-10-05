@@ -133,8 +133,8 @@ function initDrop() {
 
 /* ---------------- ฟอร์ม ---------------- */
 function initForm() {
-  $('#type-list').innerHTML = Object.entries(DOC_TYPES).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
-  $('#dept-list').innerHTML = Object.entries(DEPTS).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${v.name} <span class="text-slate-400">(${v.th})</span></li>`).join('');
+  $('#type-list').innerHTML = Object.entries(DOC_TYPES).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${escapeHtml(v.name)} <span class="text-slate-400">(${escapeHtml(v.th)})</span></li>`).join('');
+  $('#dept-list').innerHTML = Object.entries(DEPTS).filter(([, v]) => v.active).map(([k, v]) => `<li><span class="inline-block w-8 font-mono font-semibold text-slate-800">${k}</span>${escapeHtml(v.name)} <span class="text-slate-400">(${escapeHtml(v.th)})</span></li>`).join('');
   $('#fields-wrap').innerHTML = docFieldsHtml({});
 
   const form = $('#send-form');

@@ -18,6 +18,17 @@ const APP = {
   DEFAULT_PASSWORD: 'admin1234',
   SESSION_SECONDS: 6 * 60 * 60, // อยู่ในระบบได้ 6 ชั่วโมง
   MAX_FILE_MB: 25,
+  MAX_PENDING: 100,            // รับเอกสารรอตรวจได้สูงสุดกี่รายการ (กันการส่งไฟล์ถล่มจนพื้นที่เต็ม)
+  MIN_PASSWORD: 8,
+};
+
+// จำกัดความยาวข้อความแต่ละช่อง (กันข้อมูลขยะ/เกินขนาด cell ของ Sheets)
+const MAX_LEN = { title: 200, author: 100, submitter: 100, contact: 150, note: 2000, reason: 1000, fileName: 255, name: 100, th: 100 };
+const MIME_BY_EXT = {
+  pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
 };
 
 // ค่าเริ่มต้นของแผนก/ประเภทเอกสาร — หลังติดตั้งแล้วให้เพิ่ม/แก้ไขผ่านหน้า "ตั้งค่า" ในระบบ (เก็บในชีต Options)
@@ -153,8 +164,14 @@ function login_(req) {
   }
   cache.remove('login_fail');
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-  cache.put('sess_' + token, '1', APP.SESSION_SECONDS);
-  return { token: token };
+  cache.put('sess_' + token, sessionEpoch_(), APP.SESSION_SECONDS);
+  // ยังใช้รหัสผ่านเริ่มต้นอยู่ → บังคับให้เปลี่ยน
+  return { token: token, mustChangePassword: checkPassword_(APP.DEFAULT_PASSWORD) };
+}
+
+/** เปลี่ยนค่านี้เมื่อเปลี่ยนรหัสผ่าน → session เก่าทั้งหมดใช้ไม่ได้ทันที */
+function sessionEpoch_() {
+  return PropertiesService.getScriptProperties().getProperty('SESSION_EPOCH') || '1';
 }
 
 function logout_(req) {
@@ -164,15 +181,22 @@ function logout_(req) {
 
 function requireAuth_(token) {
   const cache = CacheService.getScriptCache();
-  if (!token || !cache.get('sess_' + token)) fail_('กรุณาเข้าสู่ระบบใหม่', 'AUTH');
-  cache.put('sess_' + token, '1', APP.SESSION_SECONDS); // ต่ออายุ session
+  const epoch = sessionEpoch_();
+  if (!token || cache.get('sess_' + token) !== epoch) fail_('กรุณาเข้าสู่ระบบใหม่', 'AUTH');
+  cache.put('sess_' + token, epoch, APP.SESSION_SECONDS); // ต่ออายุ session
 }
 
 function changePassword_(req) {
   if (!checkPassword_(req.oldPassword)) fail_('รหัสผ่านเดิมไม่ถูกต้อง');
-  if (String(req.newPassword || '').length < 6) fail_('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
-  setPassword_(req.newPassword);
-  return true;
+  const pw = String(req.newPassword || '');
+  if (pw.length < APP.MIN_PASSWORD) fail_('รหัสผ่านใหม่ต้องมีอย่างน้อย ' + APP.MIN_PASSWORD + ' ตัวอักษร');
+  if (pw === APP.DEFAULT_PASSWORD) fail_('ห้ามใช้รหัสผ่านเริ่มต้น');
+  setPassword_(pw);
+  // ออกจากระบบทุกเครื่อง แล้วออก session ใหม่ให้เครื่องนี้
+  PropertiesService.getScriptProperties().setProperty('SESSION_EPOCH', Utilities.getUuid());
+  const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('sess_' + token, sessionEpoch_(), APP.SESSION_SECONDS);
+  return { token: token };
 }
 
 function setPassword_(pw) {
@@ -201,7 +225,7 @@ function sha256_(s) {
 function submit_(req) {
   const data = req.data || {};
   const d = validateDoc_(data, true);
-  const submitter = str_(data.submitter);
+  const submitter = limit_(data.submitter, 'submitter');
   if (!submitter) fail_('กรุณาระบุชื่อผู้ส่ง');
   checkFile_(req.file);
 
@@ -209,15 +233,18 @@ function submit_(req) {
     if (readAll_(T.DOCS).some((x) => x.docCode === d.docCode && x.rev === d.rev)) {
       fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' มีอยู่ในระบบแล้ว');
     }
-    if (readAll_(T.SUBS).some((x) => x.status === 'Pending' && x.docCode === d.docCode && x.rev === d.rev)) {
+    const pending = readAll_(T.SUBS).filter((x) => x.status === 'Pending');
+    if (pending.length >= APP.MAX_PENDING) fail_('มีเอกสารรอตรวจสอบจำนวนมาก ระบบปิดรับชั่วคราว กรุณาติดต่อผู้ดูแลเอกสาร');
+    if (pending.some((x) => x.docCode === d.docCode && x.rev === d.rev)) {
       fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' ถูกส่งมาแล้วและกำลังรอตรวจสอบ');
     }
     const file = saveFile_(req.file, folder_(rootFolder_(), '01 รอตรวจสอบ (Pending)'), req.file.name);
-    const refNo = 'SUB-' + Utilities.formatDate(new Date(), tz_(), 'yyMMdd') + '-' + Utilities.getUuid().slice(0, 4).toUpperCase();
+    // เลขอ้างอิงสุ่ม 10 หลัก เดาไม่ได้ (ใช้ดูสถานะโดยไม่ต้อง Login)
+    const refNo = 'SUB-' + Utilities.formatDate(new Date(), tz_(), 'yyMMdd') + '-' + Utilities.getUuid().replace(/-/g, '').slice(0, 10).toUpperCase();
     insert_(T.SUBS, Object.assign({}, d, {
-      id: Utilities.getUuid(), refNo: refNo, submitter: submitter, contact: str_(data.contact),
-      fileId: file.getId(), fileName: req.file.name, mimeType: file.getMimeType(), fileSize: file.getSize(),
-      status: 'Pending', submittedAt: now_(), reviewedAt: '', reviewNote: '', note: str_(data.note),
+      id: Utilities.getUuid(), refNo: refNo, submitter: submitter, contact: limit_(data.contact, 'contact'),
+      fileId: file.getId(), fileName: limit_(req.file.name, 'fileName'), mimeType: file.getMimeType(), fileSize: file.getSize(),
+      status: 'Pending', submittedAt: now_(), reviewedAt: '', reviewNote: '', note: limit_(data.note, 'note'),
     }));
     log_('SUBMIT', d.docCode, d.rev, 'ส่งโดย ' + submitter);
     return { refNo: refNo };
@@ -261,10 +288,10 @@ function approveSubmission_(req) {
     const doc = Object.assign({}, d, {
       id: Utilities.getUuid(), fileId: sub.fileId, fileName: file.getName(), mimeType: sub.mimeType, fileSize: sub.fileSize,
       status: 'Active', submitter: sub.submitter, createdAt: t, updatedAt: t, submittedAt: sub.submittedAt, submissionId: sub.id,
-      note: req.data && req.data.note !== undefined ? str_(req.data.note) : sub.note, // เนื้อหาที่มีการแก้ไข
+      note: req.data && req.data.note !== undefined ? limit_(req.data.note, 'note') : sub.note, // เนื้อหาที่มีการแก้ไข
     });
     insert_(T.DOCS, doc);
-    update_(T.SUBS, sub, Object.assign({}, d, { status: 'Approved', reviewedAt: t, reviewNote: str_(req.note) }));
+    update_(T.SUBS, sub, Object.assign({}, d, { status: 'Approved', reviewedAt: t, reviewNote: limit_(req.note, 'reason') }));
     const replaced = recalcStatus_(d.docCode);
     log_('APPROVE', d.docCode, d.rev, 'อนุมัติเอกสารจาก ' + sub.submitter);
     return { document: doc, replaced: replaced };
@@ -272,7 +299,7 @@ function approveSubmission_(req) {
 }
 
 function rejectSubmission_(req) {
-  const reason = str_(req.reason);
+  const reason = limit_(req.reason, 'reason');
   if (!reason) fail_('กรุณาระบุเหตุผล');
   return withLock_(() => {
     const sub = readAll_(T.SUBS).find((s) => s.id === req.id);
@@ -294,7 +321,7 @@ function addDocument_(req) {
     const t = now_();
     const doc = Object.assign({}, d, {
       id: Utilities.getUuid(), fileId: file.getId(), fileName: file.getName(), mimeType: file.getMimeType(), fileSize: file.getSize(),
-      status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submittedAt: t, submissionId: '', note: str_((req.data || {}).note),
+      status: 'Active', submitter: 'ผู้ดูแลระบบ', createdAt: t, updatedAt: t, submittedAt: t, submissionId: '', note: limit_((req.data || {}).note, 'note'),
     });
     insert_(T.DOCS, doc);
     const replaced = recalcStatus_(d.docCode);
@@ -310,7 +337,7 @@ function updateDocument_(req) {
     if (!doc) fail_('ไม่พบเอกสาร');
     dupCheck_(d, doc.id);
     const patch = Object.assign({}, d, { fileName: fileName_(d, doc.fileName), updatedAt: now_() });
-    if (req.data.note !== undefined) patch.note = str_(req.data.note);
+    if (req.data.note !== undefined) patch.note = limit_(req.data.note, 'note');
     try {
       const file = DriveApp.getFileById(doc.fileId);
       file.setName(patch.fileName);
@@ -388,10 +415,10 @@ function saveOption_(req) {
   const kind = o.kind === 'type' || o.kind === 'dept' ? o.kind : fail_('ประเภทตัวเลือกไม่ถูกต้อง');
   const code = str_(o.code).toUpperCase();
   if (!/^[A-Z]{2,4}$/.test(code)) fail_('รหัสต้องเป็นตัวอักษรภาษาอังกฤษ 2-4 ตัว');
-  const name = str_(o.name);
+  const name = limit_(o.name, 'name');
   if (!name) fail_('กรุณาระบุชื่อ');
   const row = {
-    kind: kind, code: code, name: name, th: str_(o.th),
+    kind: kind, code: code, name: name, th: limit_(o.th, 'th'),
     color: kind === 'type' ? (COLORS.indexOf(o.color) >= 0 ? o.color : 'slate') : '',
     active: o.active === false ? 'FALSE' : 'TRUE',
   };
@@ -430,9 +457,9 @@ function validateDoc_(src, requireActive) {
     dept: str_(src.dept).toUpperCase(),
     docNo: str_(src.docNo),
     rev: pad2_(src.rev),
-    title: str_(src.title),
+    title: limit_(src.title, 'title'),
     effectiveDate: str_(src.effectiveDate),
-    author: str_(src.author),
+    author: limit_(src.author, 'author'),
   };
   const opts = options_();
   const has = (kind, code) => opts.some((o) => o.kind === kind && o.code === code && (!requireActive || o.active));
@@ -483,8 +510,10 @@ function checkFile_(f) {
 }
 
 function saveFile_(f, folder, name) {
+  // กำหนดชนิดไฟล์จากนามสกุลเอง ไม่เชื่อค่าที่ส่งมาจาก Browser (กันไฟล์ปลอมชนิด เช่น HTML แฝงเป็น PDF)
+  const ext = (String(f.name).match(/\.([^.]+)$/) || [])[1].toLowerCase();
   const bytes = Utilities.base64Decode(f.base64);
-  const blob = Utilities.newBlob(bytes, f.mimeType || 'application/octet-stream', name);
+  const blob = Utilities.newBlob(bytes, MIME_BY_EXT[ext] || 'application/octet-stream', name);
   return folder.createFile(blob);
 }
 
@@ -550,7 +579,7 @@ function readAll_(t) {
   if (n < 1) return [];
   return sh.getRange(2, 1, n, t.headers.length).getDisplayValues().map((r, i) => {
     const o = { _row: i + 2 };
-    t.headers.forEach((h, j) => { o[h] = r[j]; });
+    t.headers.forEach((h, j) => { o[h] = cellRead_(r[j]); });
     return o;
   });
 }
@@ -562,13 +591,13 @@ function readLast_(t, count) {
   const start = Math.max(2, last - count + 1);
   return sh.getRange(start, 1, last - start + 1, t.headers.length).getDisplayValues().map((r) => {
     const o = {};
-    t.headers.forEach((h, j) => { o[h] = r[j]; });
+    t.headers.forEach((h, j) => { o[h] = cellRead_(r[j]); });
     return o;
   });
 }
 
 function writeRow_(t, row, obj) {
-  const vals = t.headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])));
+  const vals = t.headers.map((h) => cellSafe_(obj[h]));
   sheet_(t).getRange(row, 1, 1, t.headers.length).setNumberFormat('@').setValues([vals]);
 }
 
@@ -609,6 +638,23 @@ function clean_(o) {
   const c = Object.assign({}, o);
   delete c._row;
   return c;
+}
+
+/**
+ * กัน Formula injection: ข้อความที่ขึ้นต้นด้วย = + - @ จะถูก Sheets มองเป็นสูตร
+ * (เช่น =IMPORTXML(...) ที่ส่งข้อมูลในชีตออกไปภายนอก) จึงเติม ' นำหน้าให้เป็นข้อความเสมอ
+ */
+function cellSafe_(v) {
+  const s = v === undefined || v === null ? '' : String(v);
+  return /^[=+\-@']/.test(s) ? "'" + s : s;
+}
+function cellRead_(v) {
+  return /^'[=+\-@']/.test(v) ? v.slice(1) : v;
+}
+
+/** ตัดช่องว่าง + จำกัดความยาวตาม MAX_LEN */
+function limit_(v, key) {
+  return str_(v).slice(0, MAX_LEN[key] || 500);
 }
 
 function str_(v) { return v === undefined || v === null ? '' : String(v).trim(); }
