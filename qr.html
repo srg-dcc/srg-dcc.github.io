@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ป้าย QR · DCC Document Control Center</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d9488'/%3E%3Cpath d='M11 8h7l5 5v11a1 1 0 0 1-1 1H11a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/tailwind.css?v=ef1dc7ed">
+  <link rel="stylesheet" href="assets/css/app.css?v=0adceb91">
+  <style>
+    /* ป้ายพิมพ์ใช้โทนสว่างเสมอ (ไม่มีโหมดมืด) */
+    body { background: #eef2f5; }
+    .poster { background: #fff; color: #0f172a; width: 100%; max-width: 148mm; border-radius: 18px; box-shadow: 0 10px 30px -12px rgba(15, 23, 42, .25); }
+    .poster .qr svg { width: 100%; height: auto; display: block; }
+    .step-no { flex-shrink: 0; width: 1.75rem; height: 1.75rem; border-radius: 999px; background: #0d9488; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; }
+    @page { size: A5 portrait; margin: 8mm; }
+    @media print {
+      body { background: #fff; }
+      .no-print { display: none !important; }
+      body { min-height: 0; }
+      main { padding: 0 !important; }
+      /* ให้พอดี A5 หน้าเดียว (เผื่อที่ให้ฟอนต์ไทยที่สูงกว่าปกติ) */
+      .poster { box-shadow: none; border: 1.5px solid #cbd5e1; max-width: none; padding: 7mm 9mm !important; break-inside: avoid; }
+      .poster h1 { margin-top: 4mm !important; }
+      #p-qr { max-width: 70mm !important; margin-top: 4mm !important; }
+      #p-steps { margin-top: 4mm !important; }
+      #p-url { margin-top: 3mm !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+  <div class="no-print border-b border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-3xl flex-wrap items-center gap-2 px-4 py-3">
+      <p class="mr-auto text-sm font-semibold text-slate-700">ป้าย QR สำหรับตั้งโต๊ะ</p>
+      <div class="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+        <a href="?for=library" class="tab rounded-lg px-3 py-1.5 font-medium" data-for="library">ขอเอกสาร</a>
+        <a href="?for=submit" class="tab rounded-lg px-3 py-1.5 font-medium" data-for="submit">ส่งเอกสาร</a>
+      </div>
+      <button id="print" class="btn btn-primary !py-2"><span data-icon="printer" data-cls="h-4 w-4"></span>พิมพ์ป้าย</button>
+    </div>
+  </div>
+
+  <main class="flex justify-center px-4 py-8">
+    <article class="poster px-8 py-9 text-center sm:px-10">
+      <div class="flex items-center justify-center gap-2.5">
+        <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-600 text-white" data-icon="folder"></span>
+        <span class="text-left leading-tight"><b class="block text-base">DCC</b><span class="text-xs text-slate-500">Document Control Center</span></span>
+      </div>
+      <h1 id="p-title" class="mt-6 text-3xl font-bold tracking-tight"></h1>
+      <p id="p-sub" class="mt-2 text-base text-slate-600"></p>
+      <div class="qr mx-auto mt-6 w-full max-w-[78mm] rounded-2xl border-[3px] border-teal-600 p-3" id="p-qr"></div>
+      <p class="mt-3 text-sm font-semibold text-teal-700">📱 เปิดกล้องมือถือ แล้วสแกน</p>
+      <ol id="p-steps" class="mx-auto mt-6 max-w-[100mm] space-y-2.5 text-left text-[15px]"></ol>
+      <p class="mt-6 break-all font-mono text-[11px] text-slate-400" id="p-url"></p>
+    </article>
+  </main>
+
+  <script src="assets/js/config.js?v=bc79022e"></script>
+  <script src="assets/js/common.js?v=f6426403"></script>
+  <script src="assets/vendor/qrcode.js?v=4c79be16"></script>
+  <script src="assets/js/qr.js?v=512ecb81"></script>
+  <script>
+    (function () {
+      const kind = new URLSearchParams(location.search).get('for') === 'submit' ? 'submit' : 'library';
+      const POSTERS = {
+        library: {
+          page: 'library.html',
+          title: 'ต้องการเอกสาร?',
+          sub: 'สแกนเพื่อค้นหาและขอไฟล์ PDF',
+          steps: ['สแกน QR ด้วยกล้องมือถือ', 'ค้นหาเอกสาร แล้วกดปุ่ม <b>ขอไฟล์</b>', 'กรอกชื่อ แผนก และอีเมล แล้วกด <b>ส่งคำขอ</b>', 'รับไฟล์ PDF ทางอีเมลเมื่อผู้ดูแลอนุมัติ'],
+        },
+        submit: {
+          page: 'submit.html',
+          title: 'ส่งเอกสารเข้าระบบ',
+          sub: 'สแกนเพื่อส่งไฟล์ PDF ให้ตรวจและจัดเก็บ',
+          steps: ['สแกน QR ด้วยกล้องมือถือ', 'เลือกไฟล์ PDF ที่ต้องการส่ง', 'ตรวจข้อมูลเอกสาร และกรอกชื่อผู้ส่ง', 'เก็บเลขอ้างอิงไว้ติดตามสถานะ'],
+        },
+      };
+      const p = POSTERS[kind];
+      const url = siteUrl(p.page);
+      document.title = `ป้าย QR: ${p.title} · DCC`;
+      document.getElementById('p-title').textContent = p.title;
+      document.getElementById('p-sub').textContent = p.sub;
+      document.getElementById('p-qr').innerHTML = qrSvg(url, 300, `QR ไปที่ ${url}`);
+      document.getElementById('p-url').textContent = url;
+      document.getElementById('p-steps').innerHTML = p.steps.map((s, i) => `<li class="flex items-start gap-3"><span class="step-no">${i + 1}</span><span class="pt-0.5">${s}</span></li>`).join('');
+      document.querySelectorAll('[data-for]').forEach((a) => {
+        const on = a.dataset.for === kind;
+        a.classList.toggle('bg-white', on);
+        a.classList.toggle('shadow-sm', on);
+        a.classList.toggle('text-slate-800', on);
+        a.classList.toggle('text-slate-500', !on);
+      });
+      document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon, el.dataset.cls || 'h-5 w-5'); });
+      document.getElementById('print').addEventListener('click', () => window.print());
+    })();
+  </script>
+</body>
+</html>

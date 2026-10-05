@@ -11,6 +11,7 @@ const LIB = {
   f: { q: '', type: '', dept: '', status: 'Active' },
   shown: 50,
   picked: new Set(),
+  deepReq: null, // รหัสเอกสารจากลิงก์/QR แบบ #req=<id> รอเปิดฟอร์มขอไฟล์หลังโหลดข้อมูล
 };
 const MAX_PICK = 20;
 const MY_REQ_KEY = 'dc_my_requests';
@@ -45,6 +46,7 @@ async function loadData() {
   if (cached && Array.isArray(cached.documents)) {
     applyData(cached);
     renderAll();
+    handleDeepLink(false);
   } else {
     $('#results').innerHTML = '<div class="skeleton h-64"></div>';
   }
@@ -54,10 +56,38 @@ async function loadData() {
     if (!API.isDemo) storageSet(libCacheKey(), d);
     applyData(d);
     if (changed || !cached) renderAll(document.activeElement === $('#q'));
+    handleDeepLink(true);
   } catch (err) {
     if (!LIB.loaded) $('#results').innerHTML = `<div class="card p-8 text-center text-sm text-rose-600">${escapeHtml(err.message)}</div>`;
     else toast('อัปเดตรายการไม่สำเร็จ แสดงข้อมูลล่าสุดที่มี', 'info');
+    if (LIB.loaded) handleDeepLink(true);
   }
+}
+
+/* ---------------- ลิงก์ตรงจาก QR: library.html#req=<id>[,<id>] ---------------- */
+function readDeepLink() {
+  const m = /^#req=([^&]*)/.exec(location.hash);
+  if (!m) return;
+  let raw = m[1];
+  try { raw = decodeURIComponent(raw); } catch (e) { /* ใช้ค่าเดิม */ }
+  const ids = [...new Set(raw.split(',').map((x) => x.trim()).filter(Boolean))].slice(0, MAX_PICK);
+  // ล้าง #req ออกจากแถบที่อยู่ กดรีเฟรชแล้วฟอร์มจะไม่เด้งซ้ำ
+  history.replaceState(null, '', location.pathname + location.search);
+  if (ids.length) LIB.deepReq = ids;
+}
+
+/** final = ได้ข้อมูลล่าสุดจากเซิร์ฟเวอร์แล้ว (ถ้ายังเป็นแค่แคช และหาเอกสารไม่ครบ ให้รอข้อมูลจริงก่อน) */
+function handleDeepLink(final) {
+  if (!LIB.deepReq || !LIB.loaded) return;
+  const found = LIB.deepReq.filter((id) => LIB.docs.some((d) => d.id === id));
+  if (!final && found.length < LIB.deepReq.length) return;
+  LIB.deepReq = null;
+  if (!found.length) { toast('ไม่พบเอกสารในลิงก์นี้ อาจถูกลบไปแล้ว ลองค้นหาจากรายการ', 'error'); return; }
+  setTab('list');
+  found.forEach((id) => { if (LIB.picked.size < MAX_PICK) LIB.picked.add(id); });
+  renderTable();
+  renderBasket();
+  if (!$('#modal-root')) openRequestForm();
 }
 
 /* ---------------- ตัวกรอง + ตาราง ---------------- */
@@ -328,6 +358,14 @@ function init() {
   $('#track-result').addEventListener('click', (e) => {
     const b = e.target.closest('[data-ref]');
     if (b) { $('#track-form').refNo.value = b.dataset.ref; checkRequest(b.dataset.ref); }
+  });
+  readDeepLink();
+  // เปิดลิงก์ #req ขณะหน้านี้เปิดอยู่แล้ว: ถ้าข้อมูลในเครื่องไม่มีเอกสารนั้น ให้โหลดรายการล่าสุดก่อน
+  window.addEventListener('hashchange', () => {
+    if (location.hash === '#track') { setTab('track'); return; }
+    readDeepLink();
+    handleDeepLink(false);
+    if (LIB.deepReq && LIB.loaded) loadData();
   });
   setTab(location.hash === '#track' ? 'track' : 'list');
   loadData();

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/tailwind.css?v=80d08f5c">
+  <link rel="stylesheet" href="assets/css/tailwind.css?v=ef1dc7ed">
   <link rel="stylesheet" href="assets/css/dark.css?v=a6458c19">
   <script>
     // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
@@ -71,6 +71,7 @@
           <a href="submit.html" target="_blank" class="nav-link flex-1"><span data-icon="upload"></span>หน้าส่งเอกสาร</a>
           <button class="icon-btn" data-action="copy-submit-link" title="คัดลอกลิงก์หน้าส่งเอกสาร" aria-label="คัดลอกลิงก์หน้าส่งเอกสาร"><span data-icon="link" data-cls="h-4 w-4"></span></button>
         </div>
+        <button class="nav-link w-full" data-action="qr-links"><span data-icon="qr"></span>QR Code ติดโต๊ะ</button>
       </nav>
       <div class="border-t border-slate-100 p-3 space-y-1">
         <div id="demo-banner" class="mb-2 hidden rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
@@ -103,8 +104,10 @@
   </div>
 
   <script src="assets/js/config.js?v=bc79022e"></script>
-  <script src="assets/js/common.js?v=8f419ac9"></script>
+  <script src="assets/js/common.js?v=f6426403"></script>
   <script src="assets/js/api.js?v=e98a2462"></script>
-  <script src="assets/js/app.js?v=74159292"></script>
+  <script src="assets/vendor/qrcode.js?v=4c79be16"></script>
+  <script src="assets/js/qr.js?v=512ecb81"></script>
+  <script src="assets/js/app.js?v=b36d2132"></script>
 </body>
 </html>

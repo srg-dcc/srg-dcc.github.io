@@ -811,6 +811,7 @@ function openDetail(id) {
         <button class="btn btn-ghost !py-2" data-action="download" data-id="${d.id}">${icon('download', 'h-4 w-4')}ดาวน์โหลด</button>
         <button class="btn btn-ghost !py-2" data-action="share" data-id="${d.id}">${icon('link', 'h-4 w-4')}ลิงก์ส่งต่อ</button>
         <button class="btn btn-ghost !py-2" data-action="edit" data-id="${d.id}">${icon('pencil', 'h-4 w-4')}แก้ไขข้อมูล</button>
+        <button class="btn btn-soft !py-2" data-action="qr-doc" data-id="${d.id}" title="ให้ผู้ขอสแกนเพื่อขอไฟล์นี้">${icon('qr', 'h-4 w-4')}QR ขอไฟล์นี้</button>
       </div>
 
       <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
@@ -1077,6 +1078,56 @@ async function rejectRequest(id, btn) {
 }
 
 /* =============================================================
+ * QR Code: ป้ายตั้งโต๊ะ และ QR ขอไฟล์ฉบับเจาะจง
+ * ============================================================= */
+function qrCard(title, desc, url, fileName, posterFor) {
+  return `
+  <div class="flex flex-col items-center rounded-2xl border border-slate-200 p-4 text-center">
+    <p class="font-semibold text-slate-800">${title}</p>
+    <p class="mt-0.5 text-xs text-slate-500">${desc}</p>
+    <div class="mt-3 overflow-hidden rounded-xl ring-1 ring-slate-200">${qrSvg(url, 180, title)}</div>
+    <p class="mt-2 w-full select-all break-all font-mono text-[11px] text-slate-400">${escapeHtml(url)}</p>
+    <div class="mt-3 grid w-full grid-cols-3 gap-1.5">
+      <button class="btn btn-ghost !px-2 !py-1.5 text-xs" data-action="qr-copy" data-url="${escapeHtml(url)}">${icon('link', 'h-3.5 w-3.5')}ลิงก์</button>
+      <button class="btn btn-ghost !px-2 !py-1.5 text-xs" data-action="qr-download" data-url="${escapeHtml(url)}" data-caption="${escapeHtml(title)}" data-file="${fileName}">${icon('download', 'h-3.5 w-3.5')}รูป</button>
+      <a class="btn btn-primary !px-2 !py-1.5 text-xs" href="qr.html?for=${posterFor}" target="_blank" rel="noopener">${icon('printer', 'h-3.5 w-3.5')}พิมพ์</a>
+    </div>
+  </div>`;
+}
+
+function openQrLinks() {
+  openModal(`
+    ${modalHeader('QR Code ติดโต๊ะ', 'คนที่เดินมาขอเอกสาร สแกนได้เลย ไม่ต้องแอดไลน์เพื่อส่งลิงก์')}
+    <div class="p-5">
+      <div class="grid gap-3 sm:grid-cols-2">
+        ${qrCard('ขอเอกสาร', 'ค้นหาเอกสาร · ขอไฟล์ PDF ทางอีเมล', siteUrl('library.html'), 'DCC-QR-request.png', 'library')}
+        ${qrCard('ส่งเอกสาร', 'ส่งไฟล์ PDF เข้าระบบให้ตรวจ', siteUrl('submit.html'), 'DCC-QR-submit.png', 'submit')}
+      </div>
+      <p class="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">กด <b>พิมพ์</b> เพื่อเปิดป้ายขนาด A5 พร้อมวิธีใช้ แล้วพิมพ์ตั้งไว้ที่โต๊ะ · ถ้าคนมาขอเอกสารฉบับเจาะจง เปิดรายละเอียดเอกสารนั้นแล้วกด <b>QR ขอไฟล์นี้</b></p>
+    </div>`, { size: 'max-w-2xl' });
+}
+
+function openQrDoc(id) {
+  const d = S.docs.find((x) => x.id === id);
+  if (!d) return;
+  const url = siteUrl('library.html', `req=${d.id}`);
+  const caption = `${d.docCode} Rev.${d.rev}`;
+  openModal(`
+    ${modalHeader('QR ขอไฟล์นี้', 'ให้ผู้ขอสแกนด้วยกล้องมือถือ ฟอร์มขอไฟล์ฉบับนี้จะเปิดขึ้นทันที')}
+    <div class="flex flex-col items-center p-6 text-center">
+      <p class="font-mono text-lg font-semibold text-slate-800">${escapeHtml(d.docCode)} <span class="text-slate-400">Rev.${escapeHtml(d.rev)}</span></p>
+      <p class="text-sm text-slate-500">${escapeHtml(d.title)}</p>
+      ${d.status === 'Active' ? '' : '<p class="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">ฉบับนี้เป็น Rev เก่า (ไม่ใช่ฉบับใช้งาน)</p>'}
+      <div class="mt-4 rounded-2xl p-2 ring-2 ring-teal-500">${qrSvg(url, 260, `QR ขอไฟล์ ${caption}`)}</div>
+      <p class="mt-3 text-sm text-slate-600">ผู้ขอกรอก ชื่อ · แผนก · อีเมล แล้วกดส่งคำขอ<br>คำขอจะเข้ามาที่เมนู <b>คำขอไฟล์</b> ให้คุณอนุมัติ</p>
+      <div class="mt-4 flex gap-2">
+        <button class="btn btn-ghost" data-action="qr-copy" data-url="${escapeHtml(url)}">${icon('link', 'h-4 w-4')}คัดลอกลิงก์</button>
+        <button class="btn btn-ghost" data-action="qr-download" data-url="${escapeHtml(url)}" data-caption="${escapeHtml(caption)}" data-file="DCC-QR-${escapeHtml(d.docCode)}-Rev${escapeHtml(d.rev)}.png">${icon('download', 'h-4 w-4')}ดาวน์โหลดรูป</button>
+      </div>
+    </div>`, { size: 'max-w-md' });
+}
+
+/* =============================================================
  * ตั้งค่า: แผนก / ประเภทเอกสาร
  * ============================================================= */
 const KIND_META = {
@@ -1224,6 +1275,10 @@ async function onAction(e) {
     case 'req-tab': S.reqTab = el.dataset.tab; renderRequests(); break;
     case 'req-approve': approveRequest(id, el); break;
     case 'req-reject': rejectRequest(id, el); break;
+    case 'qr-links': toggleSidebar(false); openQrLinks(); break;
+    case 'qr-doc': openQrDoc(id); break;
+    case 'qr-download': downloadQrPng(el.dataset.url, el.dataset.caption, el.dataset.file); break;
+    case 'qr-copy': if (await copyText(el.dataset.url)) toast('คัดลอกลิงก์แล้ว'); break;
     case 'copy-library-link': {
       const url = new URL('library.html', location.href).href;
       if (await copyText(url)) toast('คัดลอกลิงก์หน้ารายการเอกสารแล้ว ส่งให้พนักงานได้เลย');
