@@ -116,3 +116,9 @@ html .table-docs tbody tr:hover .sticky-col { background: #f8fafc; }
 html .file-chip { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; border-radius: .5rem; padding: .2rem .55rem; font-size: .75rem; color: #475569; background: #fff; box-shadow: inset 0 0 0 1px #e2e8f0; transition: all .15s; }
 html .file-chip:hover { color: var(--brand-dark); background: #f0fdfa; box-shadow: inset 0 0 0 1px #99f6e4; }
 html .file-chip > span:first-child { font-size: .65rem; letter-spacing: .02em; }
+
+/* แถบโหลดบาง ๆ ด้านบน ขณะติดต่อ Server */
+html::before { content: ''; position: fixed; top: 0; left: 0; z-index: 90; height: 2px; width: 0; background: var(--brand); opacity: 0; transition: opacity .2s; pointer-events: none; }
+html.api-busy::before { opacity: 1; animation: busy-bar 1.4s ease-in-out infinite; }
+@keyframes busy-bar { 0% { left: 0; width: 0; } 50% { left: 10%; width: 60%; } 100% { left: 100%; width: 0; } }
+@media (prefers-reduced-motion: reduce) { html.api-busy::before { animation: none; width: 100%; } }

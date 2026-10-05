@@ -119,7 +119,10 @@ function doPost(e) {
     }
     if (Object.prototype.hasOwnProperty.call(ADMIN_ACTIONS, action)) {
       requireAuth_(req.token);
-      return out_({ ok: true, data: ADMIN_ACTIONS[action](req) });
+      const data = ADMIN_ACTIONS[action](req);
+      // คำสั่งที่เปลี่ยนข้อมูล: ส่งข้อมูลล่าสุดกลับไปด้วย หน้าเว็บจะได้ไม่ต้องโหลดซ้ำอีกรอบ
+      const state = RETURNS_STATE.indexOf(action) >= 0 ? bootstrap_() : undefined;
+      return out_({ ok: true, data: data, state: state });
     }
     fail_('ไม่รู้จักคำสั่ง: ' + action);
   } catch (err) {
@@ -134,6 +137,8 @@ const PUBLIC_ACTIONS = {
   submit: submit_,
   checkStatus: checkStatus_,
 };
+
+const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile'];
 
 const ADMIN_ACTIONS = {
   bootstrap: bootstrap_,
@@ -356,7 +361,7 @@ function deleteDocument_(req) {
     const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
     if (!doc) fail_('ไม่พบเอกสาร');
     try { DriveApp.getFileById(doc.fileId).setTrashed(true); } catch (e) { /* ignore */ }
-    sheet_(T.DOCS).deleteRow(doc._row);
+    remove_(T.DOCS, doc._row);
     recalcStatus_(doc.docCode);
     log_('DELETE', doc.docCode, doc.rev, 'ลบเอกสาร');
     return true;
@@ -441,7 +446,7 @@ function deleteOption_(req) {
     if (used) fail_('มีเอกสาร ' + used + ' รายการใช้รหัส ' + req.code + ' อยู่ ลบไม่ได้ (ใช้ "ปิดใช้งาน" แทน)');
     const cur = readAll_(T.OPTIONS).find((x) => x.kind === req.kind && x.code === req.code);
     if (!cur) fail_('ไม่พบตัวเลือกนี้');
-    sheet_(T.OPTIONS).deleteRow(cur._row);
+    remove_(T.OPTIONS, cur._row);
     log_('SETTING', req.code, '', 'ลบ' + (req.kind === 'type' ? 'ประเภทเอกสาร ' : 'แผนก ') + req.code);
     return options_();
   });
@@ -559,7 +564,9 @@ function db_() {
   return SS_CACHE_;
 }
 
+const SHEET_OBJ_ = {};
 function sheet_(t) {
+  if (SHEET_OBJ_[t.name]) return SHEET_OBJ_[t.name];
   let sh = db_().getSheetByName(t.name);
   if (!sh) {
     sh = db_().insertSheet(t.name);
@@ -572,11 +579,20 @@ function sheet_(t) {
     }
   }
   SHEET_CHECKED_[t.name] = true;
+  SHEET_OBJ_[t.name] = sh;
   return sh;
 }
 const SHEET_CHECKED_ = {};
 
+// อ่านแต่ละชีตครั้งเดียวต่อ 1 คำขอ (ลดเวลาเรียก Google Sheets ซ้ำ) — ล้างแคชเมื่อมีการเพิ่ม/ลบแถว
+const READ_CACHE_ = {};
+
 function readAll_(t) {
+  if (!READ_CACHE_[t.name]) READ_CACHE_[t.name] = readSheet_(t);
+  return READ_CACHE_[t.name];
+}
+
+function readSheet_(t) {
   const sh = sheet_(t);
   const n = sh.getLastRow() - 1;
   if (n < 1) return [];
@@ -606,6 +622,12 @@ function writeRow_(t, row, obj) {
 
 function insert_(t, obj) {
   writeRow_(t, sheet_(t).getLastRow() + 1, obj);
+  delete READ_CACHE_[t.name];
+}
+
+function remove_(t, row) {
+  sheet_(t).deleteRow(row);
+  delete READ_CACHE_[t.name];
 }
 
 function update_(t, current, patch) {

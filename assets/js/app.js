@@ -94,19 +94,33 @@ async function onLogin(e) {
 async function loadData(silent = false) {
   if (!silent && !S.loaded) main().innerHTML = skeleton();
   try {
-    const d = await API.call('bootstrap');
-    S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
-    S.subs = d.submissions || [];
-    S.logs = d.logs || [];
-    applyOptions(d.options);
-    S.loaded = true;
-    updateBadge();
+    applyState(await API.call('bootstrap'));
     route();
   } catch (err) {
     if (err.code !== 'AUTH') {
       toast(err.message, 'error');
       if (!S.loaded) main().innerHTML = errorState(err.message);
     }
+  }
+}
+
+function applyState(d) {
+  S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
+  S.subs = d.submissions || [];
+  S.logs = d.logs || [];
+  applyOptions(d.options);
+  S.loaded = true;
+  updateBadge();
+}
+
+/** หลังบันทึก: ใช้ข้อมูลที่ Server ส่งกลับมาเลย (ไม่ต้องโหลดซ้ำอีกรอบ) */
+async function refreshAfterSave() {
+  const st = API.takeState();
+  if (st) {
+    applyState(st);
+    route();
+  } else {
+    await loadData(true);
   }
 }
 
@@ -620,7 +634,7 @@ function openReview(id) {
       const res = await API.call('approveSubmission', { id, data: { ...readDocFields(form), note: form.changeNote.value.trim() }, note: form.reviewNote.value.trim() });
       closeModal();
       toast(savedMessage(res));
-      await loadData(true);
+      await refreshAfterSave();
     } catch (err) {
       toast(err.message, 'error');
       setBusy(btn, false);
@@ -640,7 +654,7 @@ function openReview(id) {
       await API.call('rejectSubmission', { id, reason });
       closeModal();
       toast('ตีกลับเอกสารแล้ว', 'info');
-      await loadData(true);
+      await refreshAfterSave();
     } catch (err) {
       toast(err.message, 'error');
       setBusy(btn, false);
@@ -695,7 +709,7 @@ function openDocForm(doc = null, preset = {}) {
         toast(savedMessage(res));
       }
       closeModal();
-      await loadData(true);
+      await refreshAfterSave();
     } catch (err) {
       toast(err.message, 'error');
       setBusy(btn, false);
@@ -837,7 +851,7 @@ async function deleteDoc(id) {
   try {
     await API.call('deleteDocument', { id });
     toast('ลบเอกสารแล้ว');
-    await loadData(true);
+    await refreshAfterSave();
   } catch (err) {
     toast(err.message, 'error');
   }

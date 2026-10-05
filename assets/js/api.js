@@ -17,7 +17,31 @@ const API = {
     else storageRemove(TOKEN_KEY);
   },
 
+  pending: 0,
+  lastState: null,
+
+  /** ข้อมูลล่าสุดที่ Server ส่งกลับมาพร้อมคำสั่งบันทึก (ใช้ได้ครั้งเดียว) */
+  takeState() {
+    const s = this.lastState;
+    this.lastState = null;
+    return s;
+  },
+
+  setBusy(delta) {
+    this.pending = Math.max(0, this.pending + delta);
+    try { document.documentElement.classList.toggle('api-busy', this.pending > 0); } catch (e) { /* ignore */ }
+  },
+
   async call(action, payload = {}) {
+    this.setBusy(1);
+    try {
+      return await this.request(action, payload);
+    } finally {
+      this.setBusy(-1);
+    }
+  },
+
+  async request(action, payload) {
     const body = { action, token: this.token, ...payload };
     let res;
     if (this.isDemo) {
@@ -50,6 +74,7 @@ const API = {
       }
       throw err;
     }
+    if (res.state) this.lastState = res.state;
     return res.data;
   },
 };
@@ -406,7 +431,9 @@ const MockAPI = (() => {
       try {
         const fn = actions[req.action];
         if (!fn) fail('ไม่รู้จักคำสั่ง ' + req.action);
-        return { ok: true, data: fn(req) };
+        const data = fn(req);
+        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile'];
+        return { ok: true, data, state: withState.includes(req.action) ? actions.bootstrap(req) : undefined };
       } catch (e) {
         return { ok: false, error: e.message, code: e.code || 'ERROR' };
       }
