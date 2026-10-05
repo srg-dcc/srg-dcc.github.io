@@ -104,7 +104,7 @@ function initDrop() {
   input.accept = ALLOWED_EXT.map((e) => '.' + e).join(',');
   input.addEventListener('change', () => { acceptFiles(input.files); input.value = ''; });
   const max = (window.APP_CONFIG && APP_CONFIG.MAX_FILE_MB) || 25;
-  $('#drop-hint').textContent = `รองรับ PDF, Word, Excel, PowerPoint และรูปภาพ · ไม่เกิน ${max} MB`;
+  $('#drop-hint').textContent = `รับเฉพาะไฟล์ PDF · ไม่เกิน ${max} MB (ไฟล์ Word/Excel ให้ Save as PDF ก่อน)`;
   $('#change-file').addEventListener('click', () => input.click());
 
   // ลากไฟล์มาวางได้ทุกที่บนหน้า (ขั้นที่ 1 และ 2)

@@ -136,7 +136,12 @@ const MockAPI = (() => {
       effectiveDate: '2026-11-01', author: s.submitter, fileId: '', fileName: `${s.docType}-${s.dept}-${s.docNo} Rev.${s.rev} ${s.title}.pdf`,
       mimeType: 'application/pdf', fileSize: '284311', status: 'Pending', submittedAt: t, reviewedAt: '', reviewNote: '', note: i === 1 ? 'ปรับรอบความถี่การ Swab จาก 1 เดือนเป็น 2 สัปดาห์' : '',
     }));
-    const db = { docs, subs, logs: [], password: 'admin1234', options: DEFAULT_OPTIONS.map((o) => ({ ...o })) };
+    const requests = [{
+      id: uuid(), refNo: 'REQ-DEMO-001', name: 'มานพ ขยันดี', dept: 'PD', email: 'manop@example.com', purpose: 'ใช้อบรมพนักงานใหม่สายการผลิต',
+      docIds: JSON.stringify([docs[5].id, docs[7].id]), docLabels: `${docs[5].docCode} Rev.${docs[5].rev}; ${docs[7].docCode} Rev.${docs[7].rev}`,
+      status: 'Pending', requestedAt: t, reviewedAt: '', reviewNote: '', sentCount: '',
+    }];
+    const db = { docs, subs, logs: [], requests, password: 'admin1234', options: DEFAULT_OPTIONS.map((o) => ({ ...o })) };
     recalc(db, 'SD-QA-11.01');
     db.logs.push({ time: t, action: 'SUBMIT', docCode: subs[0].docCode, rev: '01', detail: `ส่งโดย ${subs[0].submitter}` });
     db.logs.push({ time: t, action: 'SUBMIT', docCode: subs[1].docCode, rev: '04', detail: `ส่งโดย ${subs[1].submitter}` });
@@ -146,6 +151,7 @@ const MockAPI = (() => {
   const load = () => {
     const db = storageGet(KEY) || (() => { const d = seed(); storageSet(KEY, d); return d; })();
     if (!db.options) db.options = DEFAULT_OPTIONS.map((o) => ({ ...o })); // ข้อมูลทดลองรุ่นเก่า
+    if (!db.requests) db.requests = [];
     if (!db.migratedAP) { // เพิ่มประเภท AP ให้ข้อมูลทดลองที่สร้างไว้ก่อนหน้า
       if (!db.options.some((o) => o.kind === 'type' && o.code === 'AP')) db.options.push({ ...DEFAULT_OPTIONS.find((o) => o.code === 'AP') });
       db.migratedAP = true;
@@ -155,6 +161,11 @@ const MockAPI = (() => {
   const save = (db) => storageSet(KEY, db);
   const files = () => storageGet(FILE_KEY, {});
   const log = (db, action, docCode, rev, detail) => db.logs.push({ time: now(), action, docCode, rev, detail });
+
+  function checkPdf(file) {
+    if (fileExt(file.name) !== 'pdf') fail('รับเฉพาะไฟล์ PDF เท่านั้น');
+    if (String(file.base64 || '').slice(0, 5) !== 'JVBER') fail('ไฟล์นี้ไม่ใช่ PDF ที่ถูกต้อง');
+  }
 
   function putFile(file) {
     const id = uuid();
@@ -228,6 +239,75 @@ const MockAPI = (() => {
 
     getOptions: () => load().options,
 
+    listPublic() {
+      const db = load();
+      return {
+        documents: db.docs.map((d) => ({ id: d.id, docCode: d.docCode, docType: d.docType, dept: d.dept, docNo: d.docNo, rev: d.rev, title: d.title, effectiveDate: d.effectiveDate, author: d.author, status: d.status })),
+        options: db.options,
+      };
+    },
+
+    requestFiles(req) {
+      const db = load();
+      const data = req.data || {};
+      const name = String(data.name || '').trim();
+      const dept = String(data.dept || '').toUpperCase();
+      const email = String(data.email || '').trim().toLowerCase();
+      const purpose = String(data.purpose || '').trim();
+      if (!name) fail('กรุณาระบุชื่อผู้ขอ');
+      if (!db.options.some((o) => o.kind === 'dept' && o.code === dept)) fail('กรุณาเลือกแผนก');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('อีเมลไม่ถูกต้อง');
+      if (!purpose) fail('กรุณาระบุวัตถุประสงค์ในการขอเอกสาร');
+      const ids = [...new Set((req.docIds || []).map(String))];
+      if (!ids.length) fail('กรุณาเลือกเอกสารอย่างน้อย 1 รายการ');
+      if (ids.length > 20) fail('ขอได้ครั้งละไม่เกิน 20 รายการ');
+      const picked = ids.map((id) => db.docs.find((d) => d.id === id));
+      if (picked.some((d) => !d)) fail('มีเอกสารบางรายการไม่อยู่ในระบบแล้ว กรุณาโหลดหน้าใหม่');
+      if (db.requests.filter((r) => r.status === 'Pending' && r.email === email).length >= 5) fail('อีเมลนี้มีคำขอที่รอดำเนินการอยู่หลายรายการ กรุณารอผลก่อน');
+      const refNo = `REQ-${now().slice(2, 10).replace(/-/g, '')}-${uuid().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+      db.requests.push({
+        id: uuid(), refNo, name, dept, email, purpose, docIds: JSON.stringify(ids), docLabels: picked.map((d) => `${d.docCode} Rev.${d.rev}`).join('; '),
+        status: 'Pending', requestedAt: now(), reviewedAt: '', reviewNote: '', sentCount: '',
+      });
+      log(db, 'REQUEST', picked.length === 1 ? picked[0].docCode : '', picked.length === 1 ? picked[0].rev : '', `${name} (${dept}) ขอ ${picked.length} รายการ`);
+      save(db);
+      return { refNo };
+    },
+
+    checkRequest(req) {
+      const r = load().requests.find((x) => x.refNo.toUpperCase() === String(req.refNo || '').trim().toUpperCase());
+      if (!r) fail('ไม่พบเลขอ้างอิงนี้');
+      return { refNo: r.refNo, status: r.status, docLabels: r.docLabels, requestedAt: r.requestedAt, reviewedAt: r.reviewedAt, reviewNote: r.reviewNote };
+    },
+
+    approveRequest(req) {
+      auth(req);
+      const db = load();
+      const r = db.requests.find((x) => x.id === req.id);
+      if (!r) fail('ไม่พบคำขอ');
+      if (r.status !== 'Pending') fail('คำขอนี้ดำเนินการไปแล้ว');
+      const ids = JSON.parse(r.docIds || '[]');
+      const picked = ids.map((id) => db.docs.find((d) => d.id === id)).filter(Boolean);
+      if (!picked.length) fail('เอกสารในคำขอนี้ถูกลบออกจากระบบแล้ว กรุณาปฏิเสธคำขอ');
+      Object.assign(r, { status: 'Approved', reviewedAt: now(), reviewNote: String(req.note || '').trim(), sentCount: String(picked.length) });
+      log(db, 'SEND', picked.length === 1 ? picked[0].docCode : '', picked.length === 1 ? picked[0].rev : '', `ส่งอีเมลถึง ${r.name} (${r.dept}) ${picked.length} ไฟล์ (โหมดทดลอง: ไม่ได้ส่งจริง)`);
+      save(db);
+      return { sent: picked.length, emails: 1 };
+    },
+
+    rejectRequest(req) {
+      auth(req);
+      const db = load();
+      const r = db.requests.find((x) => x.id === req.id);
+      if (!r) fail('ไม่พบคำขอ');
+      if (r.status !== 'Pending') fail('คำขอนี้ดำเนินการไปแล้ว');
+      if (!String(req.reason || '').trim()) fail('กรุณาระบุเหตุผล');
+      Object.assign(r, { status: 'Rejected', reviewedAt: now(), reviewNote: req.reason.trim() });
+      log(db, 'DENY', '', '', `ปฏิเสธคำขอของ ${r.name} (${r.dept})`);
+      save(db);
+      return true;
+    },
+
     saveOption(req) {
       auth(req);
       const db = load();
@@ -272,6 +352,7 @@ const MockAPI = (() => {
       const d = validateDoc(db, req.data || {}, true);
       if (!String(req.data.submitter || '').trim()) fail('กรุณาระบุชื่อผู้ส่ง');
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
+      checkPdf(req.file);
       if (db.docs.some((x) => x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
       if (db.subs.filter((x) => x.status === 'Pending').length >= 100) fail('มีเอกสารรอตรวจสอบจำนวนมาก ระบบปิดรับชั่วคราว กรุณาติดต่อผู้ดูแลเอกสาร');
       if (db.subs.some((x) => x.status === 'Pending' && x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} ถูกส่งมาแล้วและกำลังรอตรวจสอบ`);
@@ -296,7 +377,7 @@ const MockAPI = (() => {
     bootstrap(req) {
       auth(req);
       const db = load();
-      return { documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), options: db.options, demo: true };
+      return { documents: db.docs, submissions: db.subs, logs: db.logs.slice(-40).reverse(), options: db.options, requests: db.requests, demo: true };
     },
 
     approveSubmission(req) {
@@ -338,6 +419,7 @@ const MockAPI = (() => {
       const db = load();
       const d = validateDoc(db, req.data || {});
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
+      checkPdf(req.file);
       dupCheck(db, d);
       const t = now();
       const doc = {
@@ -433,7 +515,7 @@ const MockAPI = (() => {
         const fn = actions[req.action];
         if (!fn) fail('ไม่รู้จักคำสั่ง ' + req.action);
         const data = fn(req);
-        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile'];
+        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest'];
         return { ok: true, data, state: withState.includes(req.action) ? actions.bootstrap(req) : undefined };
       } catch (e) {
         return { ok: false, error: e.message, code: e.code || 'ERROR' };

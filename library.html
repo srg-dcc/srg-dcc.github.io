@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>รายการเอกสาร · DCC Document Control Center</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d9488'/%3E%3Cpath d='M11 8h7l5 5v11a1 1 0 0 1-1 1H11a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/tailwind.css">
+  <link rel="stylesheet" href="assets/css/dark.css">
+  <script>
+    // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
+    (function () {
+      var t = null;
+      try { t = JSON.parse(localStorage.getItem('dc_theme')); } catch (e) {}
+      var dark = t ? t === 'dark' : window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body class="min-h-screen antialiased">
+  <header class="border-b border-slate-200/70 bg-white">
+    <div class="mx-auto flex h-16 max-w-6xl items-center gap-2.5 px-4">
+      <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-600 text-white" data-icon="folder"></div>
+      <div class="min-w-0">
+        <p class="truncate text-sm font-semibold leading-tight text-slate-800">DCC <span class="font-normal text-slate-400">· Document Control Center</span></p>
+        <p class="text-xs leading-tight text-slate-400">รายการเอกสารควบคุม</p>
+      </div>
+      <div class="ml-auto flex items-center gap-1">
+        <span class="hidden sm:block"><a href="submit.html" class="btn btn-ghost !px-3 !py-1.5 text-xs"><span data-icon="upload" data-cls="h-4 w-4"></span>ส่งเอกสาร</a></span>
+        <button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-4 py-6 pb-28 sm:py-8">
+    <div id="demo-note" class="mb-4 hidden rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      โหมดทดลอง — ข้อมูลเก็บไว้ใน Browser นี้เท่านั้น และไม่มีการส่งอีเมลจริง
+    </div>
+
+    <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-xl font-semibold text-slate-800">รายการเอกสาร</h1>
+        <p class="mt-1 text-sm text-slate-500">ค้นหาเอกสาร แล้วกด <b class="font-medium text-slate-700">ขอไฟล์</b> · ผู้ดูแลเอกสารจะส่งไฟล์ PDF ให้ทางอีเมลหลังอนุมัติ</p>
+      </div>
+      <div class="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+        <button class="tab rounded-lg px-4 py-1.5 font-medium" data-tab="list">รายการเอกสาร</button>
+        <button class="tab rounded-lg px-4 py-1.5 font-medium" data-tab="track">ติดตามคำขอ</button>
+      </div>
+    </div>
+
+    <!-- รายการเอกสาร -->
+    <section id="tab-list">
+      <div class="card p-4 sm:p-5">
+        <div class="relative">
+          <span class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" data-icon="search"></span>
+          <input id="q" type="search" class="input !h-11 !pl-11 !text-[15px]" placeholder="ค้นหารหัสเอกสาร หรือชื่อเอกสาร..." autocomplete="off">
+        </div>
+        <div id="filters" class="mt-4 space-y-3"></div>
+      </div>
+      <div id="results" class="mt-4"></div>
+    </section>
+
+    <!-- ติดตามคำขอ -->
+    <section id="tab-track" class="hidden">
+      <form id="track-form" class="card mx-auto max-w-2xl p-5 sm:p-6">
+        <h2 class="font-semibold text-slate-800">ติดตามคำขอไฟล์</h2>
+        <p class="mt-1 text-sm text-slate-500">กรอกเลขอ้างอิงที่ได้รับหลังส่งคำขอ</p>
+        <div class="mt-4 flex gap-2">
+          <input name="refNo" class="input font-mono uppercase" placeholder="REQ-XXXXXX-XXXXXXXXXX" required>
+          <button type="submit" class="btn btn-primary">ตรวจสอบ</button>
+        </div>
+        <div id="track-result" class="mt-4"></div>
+      </form>
+    </section>
+  </main>
+
+  <!-- แถบรายการที่เลือก -->
+  <div id="basket" class="fixed inset-x-0 bottom-0 z-40 hidden border-t border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+      <p class="text-sm text-slate-600">เลือกแล้ว <b id="basket-count" class="text-slate-800">0</b> รายการ</p>
+      <button class="text-xs font-medium text-slate-500 hover:text-rose-600" data-act="clear">ล้าง</button>
+      <button class="btn btn-primary ml-auto" data-act="request"><span data-icon="send" data-cls="h-4 w-4"></span>ขอไฟล์</button>
+    </div>
+  </div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/library.js"></script>
+</body>
+</html>

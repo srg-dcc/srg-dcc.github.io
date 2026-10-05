@@ -47,6 +47,9 @@ html.dark .bg-pink-50 {
 html.dark .bg-rose-50 {
     background-color: rgb(76 5 25 / calc(var(--tw-bg-opacity,1) * 0.45))
 }
+html.dark .bg-sky-100 {
+    background-color: rgb(12 74 110 / calc(var(--tw-bg-opacity,1) * 0.55))
+}
 html.dark .bg-sky-50 {
     background-color: rgb(8 47 73 / calc(var(--tw-bg-opacity,1) * 0.45))
 }
@@ -265,6 +268,9 @@ html.dark .hover\:bg-teal-50\/40:hover {
 }
 html.dark .hover\:\!text-rose-600:hover {
     color: rgb(251 113 133 / var(--tw-text-opacity,1)) !important
+}
+html.dark .hover\:text-rose-600:hover {
+    color: rgb(251 113 133 / var(--tw-text-opacity,1))
 }
 html.dark .hover\:text-slate-600:hover {
     color: rgb(203 213 225 / var(--tw-text-opacity,1))

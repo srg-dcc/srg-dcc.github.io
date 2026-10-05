@@ -38,7 +38,7 @@
         <button type="submit" class="btn btn-primary mt-4 w-full">เข้าสู่ระบบ</button>
         <p id="demo-hint" class="mt-4 hidden rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">โหมดทดลอง: รหัสผ่านเริ่มต้นคือ <b>admin1234</b></p>
       </form>
-      <p class="mt-5 text-center text-sm text-slate-500">ต้องการส่งเอกสาร? <a href="submit.html" class="font-medium text-teal-600 hover:underline">ไปหน้าส่งเอกสาร</a></p>
+      <p class="mt-5 text-center text-sm text-slate-500">ต้องการเอกสาร? <a href="library.html" class="font-medium text-teal-600 hover:underline">ดูรายการเอกสาร</a> · <a href="submit.html" class="font-medium text-teal-600 hover:underline">ส่งเอกสาร</a></p>
     </div>
   </section>
 
@@ -60,10 +60,17 @@
         <a href="#/dashboard" class="nav-link" data-nav="dashboard"><span data-icon="grid"></span>ภาพรวม</a>
         <a href="#/documents" class="nav-link" data-nav="documents"><span data-icon="folder"></span>เอกสารทั้งหมด</a>
         <a href="#/pending" class="nav-link" data-nav="pending"><span data-icon="inbox"></span><span class="flex-1">รอตรวจสอบ</span><span id="pending-badge" class="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"></span></a>
+        <a href="#/requests" class="nav-link" data-nav="requests"><span data-icon="send"></span><span class="flex-1">คำขอไฟล์</span><span id="req-badge" class="hidden rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700"></span></a>
         <a href="#/settings" class="nav-link" data-nav="settings"><span data-icon="cog"></span>ตั้งค่าแผนก/ประเภท</a>
-        <p class="px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">ลิงก์สำหรับผู้ส่งเอกสาร</p>
-        <button class="nav-link w-full" data-action="copy-submit-link"><span data-icon="link"></span>คัดลอกลิงก์หน้าส่งไฟล์</button>
-        <a href="submit.html" target="_blank" class="nav-link"><span data-icon="send"></span>เปิดหน้าส่งไฟล์</a>
+        <p class="px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">ลิงก์สำหรับพนักงาน</p>
+        <div class="flex items-center gap-1">
+          <a href="library.html" target="_blank" class="nav-link flex-1"><span data-icon="folder"></span>หน้ารายการเอกสาร</a>
+          <button class="icon-btn" data-action="copy-library-link" title="คัดลอกลิงก์หน้ารายการเอกสาร" aria-label="คัดลอกลิงก์หน้ารายการเอกสาร"><span data-icon="link" data-cls="h-4 w-4"></span></button>
+        </div>
+        <div class="flex items-center gap-1">
+          <a href="submit.html" target="_blank" class="nav-link flex-1"><span data-icon="upload"></span>หน้าส่งเอกสาร</a>
+          <button class="icon-btn" data-action="copy-submit-link" title="คัดลอกลิงก์หน้าส่งเอกสาร" aria-label="คัดลอกลิงก์หน้าส่งเอกสาร"><span data-icon="link" data-cls="h-4 w-4"></span></button>
+        </div>
       </nav>
       <div class="border-t border-slate-100 p-3 space-y-1">
         <div id="demo-banner" class="mb-2 hidden rounded-lg bg-amber-50 p-3 text-xs text-amber-800">

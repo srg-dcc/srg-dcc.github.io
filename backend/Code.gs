@@ -20,10 +20,16 @@ const APP = {
   MAX_FILE_MB: 25,
   MAX_PENDING: 100,            // รับเอกสารรอตรวจได้สูงสุดกี่รายการ (กันการส่งไฟล์ถล่มจนพื้นที่เต็ม)
   MIN_PASSWORD: 8,
+  SITE_URL: 'https://srg-dcc.github.io/',  // ลิงก์หน้าเว็บ (ใช้ในอีเมลแจ้งเตือน)
+  MAX_PENDING_REQUESTS: 200,   // คำขอไฟล์ที่รออนุมัติได้สูงสุด
+  MAX_PENDING_PER_EMAIL: 5,    // คำขอที่รออนุมัติต่ออีเมล
+  MAX_DOCS_PER_REQUEST: 20,
+  MAX_EMAIL_MB: 20,            // ขนาดไฟล์แนบรวมต่ออีเมล (Gmail จำกัด 25 MB)
+  ADMIN_ALERTS_PER_HOUR: 30,   // จำกัดอีเมลแจ้งเตือนผู้ดูแล กันอีเมลท่วม
 };
 
 // จำกัดความยาวข้อความแต่ละช่อง (กันข้อมูลขยะ/เกินขนาด cell ของ Sheets)
-const MAX_LEN = { title: 200, author: 100, submitter: 100, contact: 150, note: 2000, reason: 1000, fileName: 255, name: 100, th: 100 };
+const MAX_LEN = { title: 200, author: 100, submitter: 100, contact: 150, note: 2000, reason: 1000, fileName: 255, name: 100, th: 100, email: 120, purpose: 500 };
 const MIME_BY_EXT = {
   pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -47,7 +53,7 @@ const DEFAULT_OPTIONS = [
   ['dept', 'ST', 'Store', 'ฝ่ายคลังสินค้า', ''],
 ];
 const COLORS = ['indigo', 'sky', 'teal', 'amber', 'rose', 'violet', 'emerald', 'orange', 'pink', 'lime', 'cyan', 'slate'];
-const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'];
+const ALLOWED_EXT = ['pdf']; // รับเฉพาะไฟล์ PDF
 
 const T = {
   DOCS: {
@@ -62,6 +68,10 @@ const T = {
   },
   LOGS: { name: 'Logs', headers: ['time', 'action', 'docCode', 'rev', 'detail'] },
   OPTIONS: { name: 'Options', headers: ['kind', 'code', 'name', 'th', 'color', 'active'] },
+  REQS: {
+    name: 'Requests',
+    headers: ['id', 'refNo', 'name', 'dept', 'email', 'purpose', 'docIds', 'docLabels', 'status', 'requestedAt', 'reviewedAt', 'reviewNote', 'sentCount'],
+  },
 };
 
 /* =============================================================
@@ -136,9 +146,12 @@ const PUBLIC_ACTIONS = {
   login: login_,
   submit: submit_,
   checkStatus: checkStatus_,
+  listPublic: listPublic_,
+  requestFiles: requestFiles_,
+  checkRequest: checkRequest_,
 };
 
-const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile'];
+const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest'];
 
 const ADMIN_ACTIONS = {
   bootstrap: bootstrap_,
@@ -152,6 +165,8 @@ const ADMIN_ACTIONS = {
   changePassword: changePassword_,
   saveOption: saveOption_,
   deleteOption: deleteOption_,
+  approveRequest: approveRequest_,
+  rejectRequest: rejectRequest_,
   logout: logout_,
 };
 
@@ -252,6 +267,10 @@ function submit_(req) {
       status: 'Pending', submittedAt: now_(), reviewedAt: '', reviewNote: '', note: limit_(data.note, 'note'),
     }));
     log_('SUBMIT', d.docCode, d.rev, 'ส่งโดย ' + submitter);
+    notifyAdmin_('มีเอกสารส่งเข้ามารอตรวจสอบ: ' + d.docCode + ' Rev.' + d.rev,
+      '<p>มีเอกสารใหม่รอตรวจสอบ</p>' + table_([
+        ['เอกสาร', d.docCode + ' Rev.' + d.rev], ['ชื่อเอกสาร', d.title], ['ส่งโดย', submitter], ['ติดต่อ', limit_(data.contact, 'contact') || '-'], ['เลขอ้างอิง', refNo],
+      ]) + button_('เปิดหน้ารอตรวจสอบ', APP.SITE_URL + '#/pending'));
     return { refNo: refNo };
   });
 }
@@ -276,6 +295,7 @@ function bootstrap_() {
     submissions: readAll_(T.SUBS).map(clean_),
     logs: readLast_(T.LOGS, 40).reverse(),
     options: options_(),
+    requests: readAll_(T.REQS).map(clean_),
   };
 }
 
@@ -391,6 +411,167 @@ function shareFile_(req) {
   }
   log_('SHARE', doc.docCode, doc.rev, 'สร้างลิงก์แชร์');
   return { url: 'https://drive.google.com/file/d/' + doc.fileId + '/view?usp=sharing' };
+}
+
+/* =============================================================
+ *  หน้ารายการเอกสาร (สาธารณะ) + คำขอไฟล์
+ * ============================================================= */
+
+/** รายการเอกสารสำหรับพนักงานทั่วไป: ส่งเฉพาะข้อมูลที่จำเป็น ไม่มีลิงก์ไฟล์ */
+function listPublic_() {
+  return {
+    documents: readAll_(T.DOCS).map((d) => ({
+      id: d.id, docCode: d.docCode, docType: d.docType, dept: d.dept, docNo: d.docNo, rev: d.rev,
+      title: d.title, effectiveDate: d.effectiveDate, author: d.author, status: d.status,
+    })),
+    options: options_(),
+  };
+}
+
+function requestFiles_(req) {
+  const data = req.data || {};
+  const name = limit_(data.name, 'name');
+  const dept = str_(data.dept).toUpperCase();
+  const email = limit_(data.email, 'email').toLowerCase();
+  const purpose = limit_(data.purpose, 'purpose');
+  if (!name) fail_('กรุณาระบุชื่อผู้ขอ');
+  if (!options_().some((o) => o.kind === 'dept' && o.code === dept)) fail_('กรุณาเลือกแผนก');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail_('อีเมลไม่ถูกต้อง');
+  if (!purpose) fail_('กรุณาระบุวัตถุประสงค์ในการขอเอกสาร');
+  const ids = Array.isArray(req.docIds) ? req.docIds.map(String) : [];
+  const uniq = ids.filter((x, i) => ids.indexOf(x) === i);
+  if (!uniq.length) fail_('กรุณาเลือกเอกสารอย่างน้อย 1 รายการ');
+  if (uniq.length > APP.MAX_DOCS_PER_REQUEST) fail_('ขอได้ครั้งละไม่เกิน ' + APP.MAX_DOCS_PER_REQUEST + ' รายการ');
+
+  return withLock_(() => {
+    const docs = readAll_(T.DOCS);
+    const picked = uniq.map((id) => docs.find((d) => d.id === id));
+    if (picked.some((d) => !d)) fail_('มีเอกสารบางรายการไม่อยู่ในระบบแล้ว กรุณาโหลดหน้าใหม่');
+    const pending = readAll_(T.REQS).filter((r) => r.status === 'Pending');
+    if (pending.length >= APP.MAX_PENDING_REQUESTS) fail_('มีคำขอรอดำเนินการจำนวนมาก กรุณาติดต่อผู้ดูแลเอกสาร');
+    if (pending.filter((r) => r.email === email).length >= APP.MAX_PENDING_PER_EMAIL) fail_('อีเมลนี้มีคำขอที่รอดำเนินการอยู่หลายรายการ กรุณารอผลก่อน');
+    const refNo = 'REQ-' + Utilities.formatDate(new Date(), tz_(), 'yyMMdd') + '-' + Utilities.getUuid().replace(/-/g, '').slice(0, 10).toUpperCase();
+    const labels = picked.map((d) => d.docCode + ' Rev.' + d.rev).join('; ');
+    insert_(T.REQS, {
+      id: Utilities.getUuid(), refNo: refNo, name: name, dept: dept, email: email, purpose: purpose,
+      docIds: JSON.stringify(uniq), docLabels: labels, status: 'Pending', requestedAt: now_(), reviewedAt: '', reviewNote: '', sentCount: '',
+    });
+    log_('REQUEST', picked.length === 1 ? picked[0].docCode : '', picked.length === 1 ? picked[0].rev : '', name + ' (' + dept + ') ขอ ' + picked.length + ' รายการ');
+    notifyAdmin_('คำขอไฟล์ใหม่จาก ' + name + ' (' + dept + ')',
+      '<p>มีคำขอไฟล์รออนุมัติ</p>' + table_([
+        ['ผู้ขอ', name + ' · แผนก ' + dept], ['อีเมล', email], ['วัตถุประสงค์', purpose], ['เอกสาร', labels], ['เลขอ้างอิง', refNo],
+      ]) + button_('เปิดหน้าคำขอไฟล์', APP.SITE_URL + '#/requests'));
+    return { refNo: refNo };
+  });
+}
+
+function checkRequest_(req) {
+  const ref = str_(req.refNo).toUpperCase();
+  const r = readAll_(T.REQS).find((x) => x.refNo.toUpperCase() === ref);
+  if (!ref || !r) fail_('ไม่พบเลขอ้างอิงนี้');
+  return { refNo: r.refNo, status: r.status, docLabels: r.docLabels, requestedAt: r.requestedAt, reviewedAt: r.reviewedAt, reviewNote: r.reviewNote };
+}
+
+function approveRequest_(req) {
+  return withLock_(() => {
+    const r = readAll_(T.REQS).find((x) => x.id === req.id);
+    if (!r) fail_('ไม่พบคำขอ');
+    if (r.status !== 'Pending') fail_('คำขอนี้ดำเนินการไปแล้ว');
+    const docs = readAll_(T.DOCS);
+    const picked = parseIds_(r.docIds).map((id) => docs.find((d) => d.id === id)).filter(Boolean);
+    if (!picked.length) fail_('เอกสารในคำขอนี้ถูกลบออกจากระบบแล้ว กรุณาปฏิเสธคำขอ');
+
+    // แบ่งไฟล์แนบเป็นหลายอีเมล ถ้าขนาดรวมเกิน MAX_EMAIL_MB
+    const files = picked.map((d) => ({ d: d, blob: DriveApp.getFileById(d.fileId).getBlob().setName(d.fileName) }));
+    const groups = [];
+    let cur = [];
+    let size = 0;
+    files.forEach((f) => {
+      const n = f.blob.getBytes().length;
+      if (cur.length && size + n > APP.MAX_EMAIL_MB * 1024 * 1024) { groups.push(cur); cur = []; size = 0; }
+      cur.push(f);
+      size += n;
+    });
+    if (cur.length) groups.push(cur);
+    if (MailApp.getRemainingDailyQuota() < groups.length) fail_('โควตาส่งอีเมลของวันนี้หมดแล้ว (Gmail จำกัดต่อวัน) กรุณาลองใหม่พรุ่งนี้');
+
+    const note = limit_(req.note, 'reason');
+    groups.forEach((g, i) => {
+      const part = groups.length > 1 ? ' (ส่วนที่ ' + (i + 1) + '/' + groups.length + ')' : '';
+      MailApp.sendEmail({
+        to: r.email,
+        name: 'DCC Document Control Center',
+        subject: 'เอกสารที่ขอ ' + r.refNo + part,
+        htmlBody: '<p>เรียน คุณ' + escape_(r.name) + '</p><p>คำขอเอกสารเลขที่ <b>' + r.refNo + '</b> ได้รับการอนุมัติแล้ว ไฟล์แนบมากับอีเมลนี้</p>'
+          + table_(g.map((f) => [f.d.docCode + ' Rev.' + f.d.rev, f.d.title + (f.d.status === 'Active' ? '' : ' (Rev เก่า — ไม่ใช่ฉบับใช้งาน)')]))
+          + (note ? '<p><b>หมายเหตุจากผู้ดูแลเอกสาร:</b> ' + escape_(note) + '</p>' : '')
+          + '<p style="color:#b45309">เอกสารควบคุม — ใช้ตามวัตถุประสงค์ที่ขอเท่านั้น ห้ามแก้ไขหรือแจกจ่ายต่อโดยไม่ได้รับอนุญาต</p>',
+        attachments: g.map((f) => f.blob),
+      });
+    });
+    update_(T.REQS, r, { status: 'Approved', reviewedAt: now_(), reviewNote: note, sentCount: String(picked.length) });
+    log_('SEND', picked.length === 1 ? picked[0].docCode : '', picked.length === 1 ? picked[0].rev : '', 'ส่งอีเมลถึง ' + r.name + ' (' + r.dept + ') ' + picked.length + ' ไฟล์');
+    return { sent: picked.length, emails: groups.length };
+  });
+}
+
+function rejectRequest_(req) {
+  const reason = limit_(req.reason, 'reason');
+  if (!reason) fail_('กรุณาระบุเหตุผล');
+  return withLock_(() => {
+    const r = readAll_(T.REQS).find((x) => x.id === req.id);
+    if (!r) fail_('ไม่พบคำขอ');
+    if (r.status !== 'Pending') fail_('คำขอนี้ดำเนินการไปแล้ว');
+    update_(T.REQS, r, { status: 'Rejected', reviewedAt: now_(), reviewNote: reason });
+    log_('DENY', '', '', 'ปฏิเสธคำขอของ ' + r.name + ' (' + r.dept + ')');
+    try {
+      MailApp.sendEmail({
+        to: r.email, name: 'DCC Document Control Center', subject: 'ผลคำขอเอกสาร ' + r.refNo,
+        htmlBody: '<p>เรียน คุณ' + escape_(r.name) + '</p><p>คำขอเอกสารเลขที่ <b>' + r.refNo + '</b> ไม่ได้รับการอนุมัติ</p>'
+          + '<p><b>เหตุผล:</b> ' + escape_(reason) + '</p><p>เอกสารที่ขอ: ' + escape_(r.docLabels) + '</p>',
+      });
+    } catch (e) { /* ส่งอีเมลไม่สำเร็จ ไม่ต้องยกเลิกการปฏิเสธ */ }
+    return true;
+  });
+}
+
+function parseIds_(s) {
+  try { const a = JSON.parse(s); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; }
+}
+
+/* ---------- อีเมล ---------- */
+
+/** รันฟังก์ชันนี้ใน Apps Script ครั้งหนึ่ง เพื่ออนุญาตสิทธิ์ส่งอีเมล และทดสอบว่าได้รับอีเมล */
+function testEmail() {
+  MailApp.sendEmail(adminEmail_(), 'DCC: ทดสอบการส่งอีเมล', 'ระบบ DCC ส่งอีเมลได้แล้ว');
+  Logger.log('ส่งอีเมลทดสอบไปที่ ' + adminEmail_() + ' แล้ว (โควตาคงเหลือวันนี้: ' + MailApp.getRemainingDailyQuota() + ')');
+}
+
+/** อีเมลผู้ดูแล: ตั้งเองได้ที่ Script Properties ชื่อ ADMIN_EMAIL (ค่าเริ่มต้นคือบัญชีเจ้าของสคริปต์) */
+function adminEmail_() {
+  return PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL') || Session.getEffectiveUser().getEmail();
+}
+
+/** แจ้งเตือนผู้ดูแลทางอีเมล — ถ้าส่งไม่สำเร็จจะไม่ทำให้คำสั่งหลักล้มเหลว */
+function notifyAdmin_(subject, html) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const n = Number(cache.get('alerts_hour') || 0);
+    if (n >= APP.ADMIN_ALERTS_PER_HOUR) return;
+    cache.put('alerts_hour', String(n + 1), 3600);
+    MailApp.sendEmail({ to: adminEmail_(), name: 'DCC Document Control Center', subject: 'DCC: ' + subject, htmlBody: html });
+  } catch (e) { /* ignore */ }
+}
+
+function escape_(s) {
+  return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function table_(rows) {
+  return '<table cellpadding="6" style="border-collapse:collapse;font-size:14px">' + rows.map((r) =>
+    '<tr><td style="color:#64748b;border-bottom:1px solid #e2e8f0">' + escape_(r[0]) + '</td><td style="border-bottom:1px solid #e2e8f0">' + escape_(r[1]) + '</td></tr>').join('') + '</table>';
+}
+function button_(label, url) {
+  return '<p><a href="' + escape_(url) + '" style="display:inline-block;background:#0d9488;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none">' + escape_(label) + '</a></p>';
 }
 
 /* =============================================================
@@ -514,7 +695,9 @@ function fileName_(d, original) {
 function checkFile_(f) {
   if (!f || !f.name || !f.base64) fail_('กรุณาแนบไฟล์');
   const ext = (String(f.name).match(/\.([^.]+)$/) || [])[1];
-  if (!ext || ALLOWED_EXT.indexOf(ext.toLowerCase()) < 0) fail_('ไม่รองรับไฟล์ประเภทนี้');
+  if (!ext || ALLOWED_EXT.indexOf(ext.toLowerCase()) < 0) fail_('รับเฉพาะไฟล์ PDF เท่านั้น');
+  // ตรวจเนื้อไฟล์จริงว่าเป็น PDF (ขึ้นต้นด้วย "%PDF" = "JVBER" ใน base64) กันการเปลี่ยนนามสกุลหลอก
+  if (String(f.base64).slice(0, 5) !== 'JVBER') fail_('ไฟล์นี้ไม่ใช่ PDF ที่ถูกต้อง');
   if (f.base64.length * 0.75 > APP.MAX_FILE_MB * 1024 * 1024) fail_('ไฟล์ใหญ่เกิน ' + APP.MAX_FILE_MB + ' MB');
 }
 

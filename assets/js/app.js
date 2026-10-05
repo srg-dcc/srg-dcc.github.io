@@ -13,6 +13,8 @@ const S = {
   page: 1,
   pageSize: 20,
   pendingTab: 'Pending',
+  reqs: [],
+  reqTab: 'Pending',
   sig: '',
   syncedAt: 0,
 };
@@ -142,7 +144,7 @@ function saveCache(d) {
 function clearCache() {
   storageRemove(cacheKey());
 }
-const stateSig = (d) => JSON.stringify([d.documents, d.submissions, d.logs, d.options]);
+const stateSig = (d) => JSON.stringify([d.documents, d.submissions, d.logs, d.options, d.requests]);
 
 /** วาดหน้าปัจจุบันใหม่ ถ้ากำลังพิมพ์ค้นหาอยู่จะอัปเดตเฉพาะตาราง */
 function rerender() {
@@ -171,6 +173,7 @@ function applyState(d, { save = true } = {}) {
   if (save) saveCache(d);
   S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
   S.subs = d.submissions || [];
+  S.reqs = d.requests || [];
   S.logs = d.logs || [];
   applyOptions(d.options);
   S.loaded = true;
@@ -207,7 +210,11 @@ function updateBadge() {
   const b = $('#pending-badge');
   b.textContent = n;
   b.classList.toggle('hidden', !n);
-  document.title = `${n ? `(${n}) ` : ''}DCC · Document Control Center`;
+  const r = S.reqs.filter((x) => x.status === 'Pending').length;
+  const rb = $('#req-badge');
+  rb.textContent = r;
+  rb.classList.toggle('hidden', !r);
+  document.title = `${n + r ? `(${n + r}) ` : ''}DCC · Document Control Center`;
 }
 
 /* ---------------- Router ---------------- */
@@ -216,6 +223,7 @@ const VIEWS = {
   documents: { title: 'เอกสารทั้งหมด', render: renderDocuments },
   pending: { title: 'รอตรวจสอบ', render: renderPending },
   settings: { title: 'ตั้งค่าแผนกและประเภทเอกสาร', render: renderSettings },
+  requests: { title: 'คำขอไฟล์', render: renderRequests },
 };
 
 function route() {
@@ -264,6 +272,9 @@ const LOG_META = {
   DOWNLOAD: ['ดาวน์โหลด', 'bg-indigo-50 text-indigo-600', 'download'],
   SHARE: ['สร้างลิงก์แชร์', 'bg-violet-50 text-violet-600', 'link'],
   SETTING: ['ตั้งค่า', 'bg-slate-100 text-slate-600', 'cog'],
+  REQUEST: ['ขอไฟล์', 'bg-sky-50 text-sky-600', 'inbox'],
+  SEND: ['ส่งไฟล์ทางอีเมล', 'bg-emerald-50 text-emerald-600', 'send'],
+  DENY: ['ปฏิเสธคำขอไฟล์', 'bg-rose-50 text-rose-500', 'x'],
 };
 
 /* =============================================================
@@ -951,6 +962,121 @@ function openChangePassword(forced = false) {
 }
 
 /* =============================================================
+ * คำขอไฟล์จากพนักงาน
+ * ============================================================= */
+function requestDocs(r) {
+  let ids = [];
+  try { ids = JSON.parse(r.docIds || '[]'); } catch (e) { /* ignore */ }
+  return ids.map((id) => S.docs.find((d) => d.id === id) || { id, missing: true });
+}
+
+function renderRequests() {
+  const pending = S.reqs.filter((r) => r.status === 'Pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
+  const done = S.reqs.filter((r) => r.status !== 'Pending').sort((a, b) => (b.reviewedAt || '').localeCompare(a.reviewedAt || ''));
+  const tab = (key, label, n) => `<button class="relative px-1 pb-3 text-sm font-medium ${S.reqTab === key ? 'text-teal-700' : 'text-slate-500 hover:text-slate-700'}" data-action="req-tab" data-tab="${key}">
+    ${label} <span class="ml-1 rounded-full px-1.5 text-xs ${S.reqTab === key ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500'}">${n}</span>
+    ${S.reqTab === key ? '<span class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-teal-600"></span>' : ''}</button>`;
+
+  let body;
+  if (S.reqTab === 'Pending') {
+    body = pending.length ? `<div class="grid gap-3 lg:grid-cols-2">${pending.map(requestCard).join('')}</div>`
+      : `<div class="card flex flex-col items-center px-6 py-16 text-center">
+          <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">${icon('check')}</div>
+          <p class="font-medium text-slate-700">ไม่มีคำขอไฟล์รอดำเนินการ</p>
+          <p class="mt-1 text-sm text-slate-500">ส่งลิงก์หน้ารายการเอกสารให้พนักงาน เพื่อค้นหาและขอไฟล์</p>
+          <button class="btn btn-ghost mt-4" data-action="copy-library-link">${icon('link', 'h-4 w-4')}คัดลอกลิงก์หน้ารายการเอกสาร</button></div>`;
+  } else {
+    body = done.length ? `<div class="card overflow-x-auto scrollbar-thin"><table class="w-full min-w-[900px] text-sm">
+      <thead class="thead-strong text-xs"><tr>
+        <th class="px-4 py-3 text-left font-medium">ผู้ขอ</th><th class="px-3 py-3 text-left font-medium">เอกสาร</th>
+        <th class="px-3 py-3 text-left font-medium">วัตถุประสงค์</th><th class="px-3 py-3 text-left font-medium">ผล</th>
+        <th class="px-3 py-3 text-left font-medium">วันที่ดำเนินการ</th><th class="px-3 py-3 text-left font-medium">หมายเหตุ</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${done.map((r) => `<tr>
+        <td class="px-4 py-3"><p class="font-medium text-slate-700">${escapeHtml(r.name)} <span class="font-mono text-xs text-slate-500">${escapeHtml(r.dept)}</span></p><p class="text-xs text-slate-400">${escapeHtml(r.email)}</p></td>
+        <td class="px-3 py-3 font-mono text-xs text-slate-600">${escapeHtml(r.docLabels).split('; ').join('<br>')}</td>
+        <td class="max-w-[220px] px-3 py-3 text-slate-500"><p class="line-clamp-2" title="${escapeHtml(r.purpose)}">${escapeHtml(r.purpose)}</p></td>
+        <td class="px-3 py-3">${r.status === 'Approved' ? `<span class="whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">ส่งแล้ว ${escapeHtml(r.sentCount || '')} ไฟล์</span>` : '<span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">ปฏิเสธ</span>'}</td>
+        <td class="whitespace-nowrap px-3 py-3 text-slate-500">${formatDateTime(r.reviewedAt)}</td>
+        <td class="max-w-[220px] truncate px-3 py-3 text-slate-500" title="${escapeHtml(r.reviewNote)}">${escapeHtml(r.reviewNote || '-')}</td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="card py-12">${emptyMini('clock', 'ยังไม่มีประวัติการส่งไฟล์')}</div>`;
+  }
+  main().innerHTML = `
+    <div class="mb-4 flex gap-6 border-b border-slate-200">${tab('Pending', 'รอดำเนินการ', pending.length)}${tab('Done', 'ประวัติการแจกจ่ายเอกสาร', done.length)}</div>
+    ${body}`;
+}
+
+function requestCard(r) {
+  const docs = requestDocs(r);
+  return `
+  <div class="card flex flex-col p-4">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <p class="font-semibold text-slate-800">${escapeHtml(r.name)} <span class="ml-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-600" title="${escapeHtml(deptName(r.dept))}">${escapeHtml(r.dept)}</span></p>
+        <p class="mt-0.5 select-all truncate text-sm text-slate-500">${escapeHtml(r.email)}</p>
+      </div>
+      <p class="shrink-0 text-right text-xs text-slate-400">${formatDateTime(r.requestedAt)}<br>${timeAgo(r.requestedAt)}</p>
+    </div>
+    <div class="mt-3 rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600"><p class="text-[11px] font-medium text-slate-400">วัตถุประสงค์</p><p class="mt-0.5 whitespace-pre-line">${escapeHtml(r.purpose)}</p></div>
+    <p class="mb-1.5 mt-3 text-xs font-medium text-slate-400">เอกสารที่ขอ ${docs.length} รายการ</p>
+    <ul class="space-y-1">${docs.map((d) => d.missing
+      ? '<li class="rounded-lg px-2 py-1.5 text-sm text-rose-600">เอกสารถูกลบออกจากระบบแล้ว</li>'
+      : `<li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
+          <span class="font-mono text-[13px] font-semibold text-slate-800">${escapeHtml(d.docCode)}</span><span class="font-mono text-xs text-slate-500">Rev.${escapeHtml(d.rev)}</span>
+          <span class="min-w-0 flex-1 truncate text-slate-600">${escapeHtml(d.title)}</span>
+          ${d.status === 'Active' ? '' : '<span class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">Rev เก่า</span>'}
+          <button class="icon-btn !h-7 !w-7" data-action="view" data-id="${d.id}" title="เปิดดู">${icon('eye', 'h-4 w-4')}</button></li>`).join('')}</ul>
+    <div class="mt-auto flex items-center gap-2 pt-4">
+      <button class="btn btn-ghost flex-1 !text-rose-600 hover:!bg-rose-50" data-action="req-reject" data-id="${r.id}">${icon('x', 'h-4 w-4')}ปฏิเสธ</button>
+      <button class="btn btn-success flex-[2]" data-action="req-approve" data-id="${r.id}">${icon('send', 'h-4 w-4')}อนุมัติและส่งอีเมล</button>
+    </div>
+  </div>`;
+}
+
+async function approveRequest(id, btn) {
+  const r = S.reqs.find((x) => x.id === id);
+  if (!r) return;
+  const n = requestDocs(r).filter((d) => !d.missing).length;
+  const note = await confirmDialog({
+    title: 'อนุมัติและส่งไฟล์ทางอีเมล',
+    message: `ระบบจะส่งไฟล์ PDF ${n} รายการ เป็นไฟล์แนบไปที่ <b>${escapeHtml(r.email)}</b>`,
+    confirmText: 'ส่งอีเมล',
+    input: { placeholder: 'หมายเหตุถึงผู้ขอ (ไม่บังคับ)' },
+  });
+  if (note === false) return;
+  setBusy(btn, true, 'กำลังส่ง...');
+  try {
+    const res = await API.call('approveRequest', { id, note });
+    toast(`ส่งไฟล์ ${res.sent} รายการไปที่ ${r.email} แล้ว`);
+    await refreshAfterSave();
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(btn, false);
+  }
+}
+
+async function rejectRequest(id, btn) {
+  const r = S.reqs.find((x) => x.id === id);
+  if (!r) return;
+  const reason = await confirmDialog({
+    title: 'ปฏิเสธคำขอไฟล์',
+    message: `ระบบจะส่งอีเมลแจ้งเหตุผลไปที่ <b>${escapeHtml(r.email)}</b>`,
+    confirmText: 'ปฏิเสธคำขอ',
+    danger: true,
+    input: { placeholder: 'เหตุผล เช่น เอกสารไม่เกี่ยวข้องกับงานของแผนก', required: true },
+  });
+  if (!reason) return;
+  setBusy(btn, true);
+  try {
+    await API.call('rejectRequest', { id, reason });
+    toast('ปฏิเสธคำขอแล้ว', 'info');
+    await refreshAfterSave();
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(btn, false);
+  }
+}
+
+/* =============================================================
  * ตั้งค่า: แผนก / ประเภทเอกสาร
  * ============================================================= */
 const KIND_META = {
@@ -1095,6 +1221,14 @@ async function onAction(e) {
       break;
     case 'page': S.page = Number(el.dataset.page); renderDocTable(); $('#doc-results').scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'pending-tab': S.pendingTab = el.dataset.tab; renderPending(); break;
+    case 'req-tab': S.reqTab = el.dataset.tab; renderRequests(); break;
+    case 'req-approve': approveRequest(id, el); break;
+    case 'req-reject': rejectRequest(id, el); break;
+    case 'copy-library-link': {
+      const url = new URL('library.html', location.href).href;
+      if (await copyText(url)) toast('คัดลอกลิงก์หน้ารายการเอกสารแล้ว ส่งให้พนักงานได้เลย');
+      break;
+    }
     case 'review': openReview(id); break;
     case 'view': viewFile('document', id); break;
     case 'view-sub': viewFile('submission', id); break;
