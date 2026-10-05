@@ -250,12 +250,19 @@ async function checkStatus(refNo) {
 }
 
 /* ---------------- เริ่มต้น ---------------- */
+/** โหลดรายการแผนก/ประเภท: ใช้ที่จำไว้ในเครื่องก่อน (ทันที) แล้วอัปเดตเบื้องหลัง */
 async function loadOptions() {
-  try {
-    applyOptions(await API.call('getOptions'));
-  } catch (e) {
-    /* ใช้ค่าเริ่มต้นใน common.js แทน */
+  const key = `dc_opts_v1:${(window.APP_CONFIG && APP_CONFIG.API_URL) || 'demo'}`;
+  const cached = API.isDemo ? null : storageGet(key);
+  const fresh = API.call('getOptions')
+    .then((o) => { if (!API.isDemo) storageSet(key, o); return o; })
+    .catch(() => null); // เชื่อมต่อไม่ได้ → ใช้ค่าเดิม/ค่าเริ่มต้นใน common.js
+  if (Array.isArray(cached) && cached.length) {
+    applyOptions(cached);
+    return; // ค่าใหม่จะถูกใช้ครั้งถัดไปที่เปิดหน้า (Server ตรวจสอบรหัสซ้ำอีกชั้นอยู่แล้ว)
   }
+  const o = await fresh;
+  if (o) applyOptions(o);
 }
 
 function init() {

@@ -9,6 +9,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/tailwind.css">
+  <link rel="stylesheet" href="assets/css/dark.css">
+  <script>
+    // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
+    (function () {
+      var t = null;
+      try { t = JSON.parse(localStorage.getItem('dc_theme')); } catch (e) {}
+      var dark = t ? t === 'dark' : window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body class="min-h-screen antialiased">
@@ -19,6 +29,7 @@
         <p class="text-sm font-semibold leading-tight text-slate-800">DCC <span class="font-normal text-slate-400">· Document Control Center</span></p>
         <p class="text-xs leading-tight text-slate-400">ส่งเอกสารเพื่อตรวจสอบและจัดเก็บ</p>
       </div>
+      <div class="ml-auto"><button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button></div>
     </div>
   </header>
 

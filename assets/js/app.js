@@ -13,6 +13,8 @@ const S = {
   page: 1,
   pageSize: 20,
   pendingTab: 'Pending',
+  sig: '',
+  syncedAt: 0,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -38,7 +40,13 @@ function init() {
   window.addEventListener('hashchange', route);
   window.addEventListener('auth-expired', () => {
     toast('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่', 'info');
+    clearCache();
+    S.loaded = false;
     showLogin();
+  });
+  // กลับมาที่แท็บนี้หลังไม่ได้ดูเกิน 1 นาที → อัปเดตข้อมูลเบื้องหลัง (เช่น มีเอกสารส่งเข้ามาใหม่)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && API.token && S.loaded && Date.now() - S.syncedAt > 60000 && !API.pending) loadData(true);
   });
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
@@ -51,7 +59,15 @@ function init() {
   $('#boot').remove();
   if (API.token) {
     showApp();
-    loadData();
+    // แสดงข้อมูลที่จำไว้ในเครื่องทันที แล้วค่อยอัปเดตจาก Server เบื้องหลัง
+    const cached = loadCache();
+    if (cached) {
+      applyState(cached.d, { save: false });
+      S.syncedAt = 0;
+      route();
+      setSync('cached', cached.at);
+    }
+    loadData(true);
   } else {
     showLogin();
   }
@@ -92,19 +108,67 @@ async function onLogin(e) {
 }
 
 async function loadData(silent = false) {
-  if (!silent && !S.loaded) main().innerHTML = skeleton();
+  const hadData = S.loaded;
+  if (!hadData) main().innerHTML = skeleton();
+  if (!(hadData && S.syncedAt === 0)) setSync('syncing'); // ถ้ากำลังแสดงข้อมูลจากแคช ให้คงข้อความ "ข้อมูลเมื่อ …" ไว้
   try {
-    applyState(await API.call('bootstrap'));
-    route();
+    const d = await API.call('bootstrap');
+    const changed = stateSig(d) !== S.sig;
+    applyState(d);
+    if (!hadData) route();
+    else if (changed) rerender(); // มีข้อมูลเปลี่ยน → วาดใหม่โดยไม่รบกวนช่องค้นหา
+    setSync('ok');
+    return true;
   } catch (err) {
     if (err.code !== 'AUTH') {
-      toast(err.message, 'error');
+      setSync('error');
       if (!S.loaded) main().innerHTML = errorState(err.message);
+      else if (!silent) toast(err.message, 'error');
     }
+    return false;
   }
 }
 
-function applyState(d) {
+/* ---------- แคชข้อมูลในเครื่อง (โหลดหน้าทันที) ---------- */
+const cacheKey = () => `dc_cache_v1:${(window.APP_CONFIG && APP_CONFIG.API_URL) || 'demo'}`;
+function loadCache() {
+  if (API.isDemo) return null;
+  const c = storageGet(cacheKey());
+  return c && c.d && Array.isArray(c.d.documents) ? c : null;
+}
+function saveCache(d) {
+  if (!API.isDemo) storageSet(cacheKey(), { at: Date.now(), d });
+}
+function clearCache() {
+  storageRemove(cacheKey());
+}
+const stateSig = (d) => JSON.stringify([d.documents, d.submissions, d.logs, d.options]);
+
+/** วาดหน้าปัจจุบันใหม่ ถ้ากำลังพิมพ์ค้นหาอยู่จะอัปเดตเฉพาะตาราง */
+function rerender() {
+  if (S.view === 'documents' && $('#doc-results') && document.activeElement === $('#doc-search')) renderDocTable();
+  else VIEWS[S.view].render();
+}
+
+function setSync(state, at) {
+  const el = $('#sync-status');
+  if (!el) return;
+  const hhmm = (t) => new Date(t).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  const text = {
+    syncing: 'กำลังอัปเดต…',
+    cached: `ข้อมูลเมื่อ ${hhmm(at || Date.now())} · กำลังอัปเดต…`,
+    ok: `อัปเดตล่าสุด ${hhmm(Date.now())}`,
+    error: 'เชื่อมต่อไม่ได้ · แสดงข้อมูลล่าสุดที่มี',
+  }[state];
+  el.textContent = text;
+  el.classList.toggle('text-amber-600', state === 'error');
+  el.classList.toggle('text-slate-400', state !== 'error');
+}
+
+function applyState(d, { save = true } = {}) {
+  S.sig = stateSig(d);
+  S.syncedAt = Date.now();
+  if (save) saveCache(d);
   S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
   S.subs = d.submissions || [];
   S.logs = d.logs || [];
@@ -119,6 +183,7 @@ async function refreshAfterSave() {
   if (st) {
     applyState(st);
     route();
+    setSync('ok');
   } else {
     await loadData(true);
   }
@@ -969,7 +1034,8 @@ async function saveOption(option, isNew, btn) {
   setBusy(btn, true);
   try {
     const list = await API.call('saveOption', { option, isNew });
-    applyOptions(list);
+    const st = API.takeState();
+    if (st) applyState(st); else applyOptions(list);
     closeModal();
     toast(`${isNew ? 'เพิ่ม' : 'บันทึก'} ${option.code} แล้ว`);
     if (S.view === 'settings') renderSettings();
@@ -983,7 +1049,9 @@ async function deleteOption(kind, code) {
   const ok = await confirmDialog({ title: `ลบ${KIND_META[kind].title} ${escapeHtml(code)}`, message: 'ต้องการลบตัวเลือกนี้ใช่หรือไม่?', confirmText: 'ลบ', danger: true });
   if (!ok) return;
   try {
-    applyOptions(await API.call('deleteOption', { kind, code }));
+    const list = await API.call('deleteOption', { kind, code });
+    const st = API.takeState();
+    if (st) applyState(st); else applyOptions(list);
     toast(`ลบ ${code} แล้ว`);
     renderSettings();
   } catch (err) {
@@ -1007,7 +1075,7 @@ async function onAction(e) {
   switch (a) {
     case 'open-sidebar': toggleSidebar(true); break;
     case 'close-sidebar': toggleSidebar(false); break;
-    case 'refresh': loadData(true).then(() => toast('อัปเดตข้อมูลแล้ว', 'info')); break;
+    case 'refresh': loadData(false).then((ok) => ok && toast('อัปเดตข้อมูลแล้ว', 'info')); break;
     case 'add-doc': toggleSidebar(false); openDocForm(); break;
     case 'goto-docs': goDocs({}); break;
     case 'goto-pending': location.hash = '#/pending'; break;
@@ -1039,7 +1107,7 @@ async function onAction(e) {
     case 'history': { const top = revisionsOf(el.dataset.code)[0]; if (top) openDetail(top.id); break; }
     case 'new-rev': {
       const top = revisionsOf(el.dataset.code)[0];
-      openDocForm(null, { docType: top.docType, dept: top.dept, docNo: top.docNo, rev: pad2(Number(top.rev) + 1), title: top.title, author: top.author });
+      openDocForm(null, { docType: top.docType, dept: top.dept, docNo: top.docNo, rev: pad2(Math.min(99, Number(top.rev) + 1)), title: top.title, author: top.author });
       break;
     }
     case 'copy-submit-link': {
@@ -1064,6 +1132,7 @@ async function onAction(e) {
     case 'logout':
       try { await API.call('logout'); } catch (_) { /* ignore */ }
       API.token = '';
+      clearCache(); // ไม่ทิ้งข้อมูลเอกสารไว้ในเครื่องหลังออกจากระบบ
       S.loaded = false;
       showLogin();
       break;

@@ -42,6 +42,7 @@ const API = {
   },
 
   async request(action, payload) {
+    this.lastState = null; // ใช้เฉพาะข้อมูลที่มากับคำขอล่าสุด
     const body = { action, token: this.token, ...payload };
     let res;
     if (this.isDemo) {
@@ -181,7 +182,7 @@ const MockAPI = (() => {
     if (!has('type', out.docType)) fail('ประเภทเอกสารไม่ถูกต้อง หรือถูกปิดใช้งาน');
     if (!has('dept', out.dept)) fail('รหัสแผนกไม่ถูกต้อง หรือถูกปิดใช้งาน');
     if (!DOC_NO_RE.test(out.docNo)) fail('เลขที่เอกสารไม่ถูกต้อง (เช่น 01 หรือ 11.01)');
-    if (!out.rev) fail('กรุณาระบุ Revision');
+    if (!/^\d{1,2}$/.test(String(d.rev ?? '').trim())) fail('Revision ต้องเป็นตัวเลข 1-2 หลัก (00-99)');
     if (!out.title) fail('กรุณาระบุชื่อเอกสาร');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(out.effectiveDate)) fail('กรุณาระบุวันที่บังคับใช้');
     if (!out.author) fail('กรุณาระบุผู้จัดทำ');

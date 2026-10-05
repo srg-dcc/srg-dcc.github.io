@@ -9,12 +9,23 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/tailwind.css">
+  <link rel="stylesheet" href="assets/css/dark.css">
+  <script>
+    // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
+    (function () {
+      var t = null;
+      try { t = JSON.parse(localStorage.getItem('dc_theme')); } catch (e) {}
+      var dark = t ? t === 'dark' : window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body class="min-h-screen antialiased">
 
   <!-- ============ หน้าเข้าสู่ระบบ ============ -->
-  <section id="login-view" class="hidden min-h-screen items-center justify-center px-4 py-10">
+  <section id="login-view" class="relative hidden min-h-screen items-center justify-center px-4 py-10">
+    <div class="absolute right-4 top-4"><button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button></div>
     <div class="w-full max-w-sm">
       <div class="mb-6 text-center">
         <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-sm" data-icon="folder"></div>
@@ -71,6 +82,8 @@
       <header class="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200/70 bg-white/85 px-4 backdrop-blur sm:px-6">
         <button class="icon-btn lg:hidden" data-action="open-sidebar" aria-label="เมนู"><span data-icon="menu"></span></button>
         <h2 id="page-title" class="flex-1 truncate text-base font-semibold text-slate-800">ภาพรวม</h2>
+        <button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button>
+        <span id="sync-status" class="hidden text-xs text-slate-400 sm:inline" aria-live="polite"></span>
         <button class="icon-btn" data-action="refresh" title="โหลดข้อมูลใหม่" aria-label="โหลดข้อมูลใหม่"><span data-icon="refresh"></span></button>
       </header>
       <main id="main" class="mx-auto max-w-7xl px-4 py-6 sm:px-6"></main>
@@ -78,7 +91,7 @@
   </div>
 
   <!-- Loading screen -->
-  <div id="boot" class="fixed inset-0 z-[80] flex items-center justify-center bg-[#f6f8fa]">
+  <div id="boot" class="fixed inset-0 z-[80] flex items-center justify-center page-bg">
     <span class="spinner h-6 w-6 text-teal-600"></span>
   </div>
 

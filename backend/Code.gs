@@ -348,9 +348,10 @@ function updateDocument_(req) {
       file.setName(patch.fileName);
       if (d.dept !== doc.dept) file.moveTo(statusFolder_(doc.status, d.dept));
     } catch (e) { /* ไม่พบไฟล์ใน Drive */ }
+    const oldCode = doc.docCode; // update_ จะเปลี่ยนค่าใน doc จึงต้องจำรหัสเดิมไว้ก่อน
     update_(T.DOCS, doc, patch);
-    recalcStatus_(doc.docCode);
-    if (doc.docCode !== d.docCode) recalcStatus_(d.docCode);
+    recalcStatus_(oldCode);
+    if (oldCode !== d.docCode) recalcStatus_(d.docCode);
     log_('UPDATE', d.docCode, d.rev, 'แก้ไขข้อมูลเอกสาร');
     return { document: Object.assign(clean_(doc), patch) };
   });
@@ -471,7 +472,7 @@ function validateDoc_(src, requireActive) {
   if (!has('type', d.docType)) fail_('ประเภทเอกสารไม่ถูกต้อง หรือถูกปิดใช้งาน');
   if (!has('dept', d.dept)) fail_('รหัสแผนกไม่ถูกต้อง หรือถูกปิดใช้งาน');
   if (!/^\d{2,3}(\.\d{2,3})?$/.test(d.docNo)) fail_('เลขที่เอกสารไม่ถูกต้อง (เช่น 01 หรือ 11.01)');
-  if (!d.rev) fail_('กรุณาระบุ Revision');
+  if (!/^\d{1,2}$/.test(str_(src.rev))) fail_('Revision ต้องเป็นตัวเลข 1-2 หลัก (00-99)');
   if (!d.title) fail_('กรุณาระบุชื่อเอกสาร');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.effectiveDate)) fail_('กรุณาระบุวันที่บังคับใช้');
   if (!d.author) fail_('กรุณาระบุผู้จัดทำ');
