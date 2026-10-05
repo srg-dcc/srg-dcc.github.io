@@ -200,3 +200,29 @@ html::before { content: ''; position: fixed; top: 0; left: 0; z-index: 90; heigh
 html.api-busy::before { opacity: 1; animation: busy-bar 1.4s ease-in-out infinite; }
 @keyframes busy-bar { 0% { left: 0; width: 0; } 50% { left: 10%; width: 60%; } 100% { left: 100%; width: 0; } }
 @media (prefers-reduced-motion: reduce) { html.api-busy::before { animation: none; width: 100%; } }
+
+/* เมนูหลักหน้าสาธารณะ: การ์ดใหญ่ 2 ปุ่ม เห็นชัดว่ากดได้ */
+html .pubnav { display: flex; align-items: center; gap: .7rem; min-height: 3.25rem; padding: .6rem .8rem; border-radius: .9rem;
+  background: var(--surface); color: var(--text-heading); border: 1.5px solid var(--border);
+  box-shadow: 0 1px 2px rgba(var(--shadow-color), .06); transition: transform .15s, box-shadow .15s, border-color .15s, background-color .15s; }
+html .pubnav:hover { border-color: var(--brand); box-shadow: 0 6px 16px -6px rgba(13, 148, 136, .35); transform: translateY(-1px); }
+html .pubnav:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+html .pubnav .pubnav-icon { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem;
+  border-radius: .65rem; background: var(--brand-tint); color: var(--brand-text-strong); }
+html .pubnav .pubnav-desc { color: var(--text-3); }
+html .pubnav .pubnav-go { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem;
+  border-radius: 999px; background: var(--brand-tint); color: var(--brand-text-strong); transition: transform .15s; }
+html .pubnav:hover .pubnav-go { transform: translateX(2px); }
+html .pubnav.active { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 6px 16px -8px rgba(13, 148, 136, .6); transform: none; cursor: default; }
+html .pubnav.active .pubnav-icon { background: rgba(255, 255, 255, .18); color: #fff; }
+html .pubnav.active .pubnav-desc, html .pubnav.active .pubnav-here { color: rgba(255, 255, 255, .85); }
+@media (prefers-reduced-motion: reduce) { html .pubnav, html .pubnav .pubnav-go { transition: none; } html .pubnav:hover { transform: none; } }
+
+/* ปุ่มรองสีแบรนด์ (เช่น "ขอไฟล์" ในตาราง) — เห็นชัดกว่าปุ่มขอบเทา */
+html .btn-soft { color: var(--brand-text-strong); background: var(--brand-tint); box-shadow: inset 0 0 0 1.5px var(--brand-ring); font-weight: 600; }
+html .btn-soft:hover:not(:disabled) { background: var(--brand); color: #fff; box-shadow: inset 0 0 0 1.5px var(--brand); }
+@media (max-width: 639px) {
+  html .pubnav { gap: .5rem; padding: .55rem .6rem; min-height: 3rem; }
+  html .pubnav .pubnav-icon { width: 2rem; height: 2rem; }
+  html .pubnav .pubnav-go { width: 1.5rem; height: 1.5rem; }
+}

@@ -147,7 +147,7 @@ function renderTable() {
               <td class="whitespace-nowrap px-3 py-2.5 ${future ? 'text-amber-600' : 'text-slate-600'}" ${future ? 'title="ยังไม่ถึงวันบังคับใช้"' : ''}>${formatDate(d.effectiveDate)}</td>
               <td class="whitespace-nowrap px-3 py-2.5 text-slate-600">${escapeHtml(d.author)}</td>
               <td class="sticky-col px-3 py-2 pr-4 text-right">
-                <button class="btn ${on ? 'btn-primary' : 'btn-ghost'} !px-3 !py-1.5 text-xs" data-pick="${d.id}" aria-pressed="${on}">${icon(on ? 'check' : 'plus', 'h-3.5 w-3.5')}${on ? 'เลือกแล้ว' : 'ขอไฟล์'}</button></td></tr>`;
+                <button class="btn ${on ? 'btn-primary' : 'btn-soft'} !px-3 !py-1.5 text-xs" data-pick="${d.id}" aria-pressed="${on}">${icon(on ? 'check' : 'plus', 'h-3.5 w-3.5')}${on ? 'เลือกแล้ว' : 'ขอไฟล์'}</button></td></tr>`;
           }).join('')}
         </tbody>
       </table>
