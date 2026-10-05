@@ -568,6 +568,17 @@ function bindRevHint(form, exceptId) {
   return upd;
 }
 
+/** ข้อความหลังจัดเก็บสำเร็จ (ไม่พังถ้า Server ตอบกลับไม่ครบ) */
+function savedMessage(res) {
+  const d = res && res.document;
+  if (!d) {
+    console.warn('DCC: unexpected save response', res);
+    return 'จัดเก็บเอกสารแล้ว';
+  }
+  const replaced = res.replaced && res.replaced.length ? ` (Rev.${res.replaced.join(', ')} ย้ายเป็นประวัติ)` : '';
+  return `จัดเก็บ ${d.docCode} Rev.${d.rev} แล้ว${replaced}`;
+}
+
 /* ---------- Modal: ตรวจสอบเอกสารที่ส่งเข้ามา ---------- */
 function openReview(id) {
   const s = S.subs.find((x) => x.id === id);
@@ -608,7 +619,7 @@ function openReview(id) {
     try {
       const res = await API.call('approveSubmission', { id, data: { ...readDocFields(form), note: form.changeNote.value.trim() }, note: form.reviewNote.value.trim() });
       closeModal();
-      toast(`จัดเก็บ ${res.document.docCode} Rev.${res.document.rev} แล้ว${res.replaced && res.replaced.length ? ` (Rev.${res.replaced.join(', ')} ย้ายเป็นประวัติ)` : ''}`);
+      toast(savedMessage(res));
       await loadData(true);
     } catch (err) {
       toast(err.message, 'error');
@@ -681,7 +692,7 @@ function openDocForm(doc = null, preset = {}) {
       } else {
         const base64 = await fileToBase64(file);
         const res = await API.call('addDocument', { data: { ...readDocFields(form), note: form.changeNote.value.trim() }, file: { name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, base64 } });
-        toast(`จัดเก็บ ${res.document.docCode} Rev.${res.document.rev} แล้ว`);
+        toast(savedMessage(res));
       }
       closeModal();
       await loadData(true);

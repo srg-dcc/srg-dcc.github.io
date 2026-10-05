@@ -498,8 +498,11 @@ function recalcStatus_(code) {
 
 function fileName_(d, original) {
   const m = String(original || '').match(/\.([^.]+)$/);
-  const safeTitle = d.title.replace(/[\\/:*?"<>|]/g, ' ');
-  return d.docCode + ' Rev.' + d.rev + ' ' + safeTitle + (m ? '.' + m[1].toLowerCase() : '');
+  const ext = m ? m[1].toLowerCase() : '';
+  // ตัดนามสกุลที่ติดมากับชื่อเอกสาร (เช่น "แผนงาน.pdf") เพื่อไม่ให้ได้ชื่อไฟล์ .pdf.pdf
+  const title = ext ? d.title.replace(new RegExp('\\.' + ext + '$', 'i'), '') : d.title;
+  const safeTitle = title.replace(/[\\/:*?"<>|]/g, ' ');
+  return d.docCode + ' Rev.' + d.rev + ' ' + safeTitle + (ext ? '.' + ext : '');
 }
 
 function checkFile_(f) {

@@ -191,7 +191,11 @@ const MockAPI = (() => {
     if (!req.token || req.token !== s) fail('กรุณาเข้าสู่ระบบใหม่', 'AUTH');
   }
 
-  const fileName = (d, orig) => `${d.docCode} Rev.${d.rev} ${d.title}${fileExt(orig) ? '.' + fileExt(orig) : ''}`;
+  const fileName = (d, orig) => {
+    const ext = fileExt(orig);
+    const title = ext ? d.title.replace(new RegExp(`\\.${ext}$`, 'i'), '') : d.title;
+    return `${d.docCode} Rev.${d.rev} ${title}${ext ? '.' + ext : ''}`;
+  };
 
   const actions = {
     ping: () => ({ demo: true }),
