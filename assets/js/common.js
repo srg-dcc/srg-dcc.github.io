@@ -512,27 +512,3 @@ if (window.matchMedia) {
   });
 }
 document.addEventListener('DOMContentLoaded', renderThemeToggles);
-
-/* ---------- เมนูหลักของหน้าสาธารณะ (รายการเอกสาร / ส่งเอกสาร) ---------- */
-const PUBLIC_PAGES = [
-  { key: 'library', href: 'library.html', icon: 'search', title: 'ค้นหาและขอเอกสาร', short: 'ขอเอกสาร', desc: 'ดูรายการเอกสาร · ขอไฟล์ PDF ทางอีเมล' },
-  { key: 'submit', href: 'submit.html', icon: 'upload', title: 'ส่งเอกสารเข้าระบบ', short: 'ส่งเอกสาร', desc: 'สำหรับผู้จัดทำ · ส่งไฟล์ให้ตรวจและจัดเก็บ' },
-];
-
-function renderPublicNav() {
-  const nav = document.getElementById('public-nav');
-  if (!nav) return;
-  const active = nav.dataset.active;
-  nav.innerHTML = `<div class="grid grid-cols-2 gap-2 sm:gap-3">${PUBLIC_PAGES.map((p) => {
-    const on = p.key === active;
-    return `<a href="${p.href}" class="pubnav ${on ? 'active' : ''}" ${on ? 'aria-current="page"' : ''}>
-      <span class="pubnav-icon">${icon(p.icon, 'h-5 w-5')}</span>
-      <span class="min-w-0 flex-1">
-        <span class="block text-sm font-semibold leading-tight sm:truncate sm:text-[15px]"><span class="whitespace-nowrap sm:hidden">${p.short}</span><span class="hidden sm:inline">${p.title}</span></span>
-        <span class="pubnav-desc hidden truncate text-xs sm:block">${p.desc}</span>
-      </span>
-      ${on ? `<span class="pubnav-here hidden text-[11px] font-medium sm:inline">หน้านี้</span>` : `<span class="pubnav-go">${icon('right', 'h-4 w-4')}</span>`}
-    </a>`;
-  }).join('')}</div>`;
-}
-document.addEventListener('DOMContentLoaded', renderPublicNav);

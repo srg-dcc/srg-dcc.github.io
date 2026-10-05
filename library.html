@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/tailwind.css">
-  <link rel="stylesheet" href="assets/css/dark.css">
+  <link rel="stylesheet" href="assets/css/tailwind.css?v=80d08f5c">
+  <link rel="stylesheet" href="assets/css/dark.css?v=a6458c19">
   <script>
     // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
     (function () {
@@ -19,7 +19,7 @@
       if (dark) document.documentElement.classList.add('dark');
     })();
   </script>
-  <link rel="stylesheet" href="assets/css/app.css">
+  <link rel="stylesheet" href="assets/css/app.css?v=0adceb91">
 </head>
 <body class="min-h-screen antialiased">
   <header class="border-b border-slate-200/70 bg-white">
@@ -31,7 +31,27 @@
       </div>
       <div class="ml-auto"><button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button></div>
     </div>
-    <nav id="public-nav" data-active="library" class="mx-auto max-w-6xl px-4 pb-3" aria-label="เมนูหลัก"></nav>
+    <!-- เมนูหลัก: เขียนไว้ใน HTML โดยตรง แสดงได้แม้ JavaScript ยังโหลดไม่เสร็จ -->
+    <nav class="mx-auto max-w-6xl px-4 pb-3" aria-label="เมนูหลัก">
+      <div class="grid grid-cols-2 gap-2 sm:gap-3">
+        <a href="library.html" class="pubnav active" aria-current="page">
+          <span class="pubnav-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="h-5 w-5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg></span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold leading-tight sm:truncate sm:text-[15px]"><span class="whitespace-nowrap sm:hidden">ขอเอกสาร</span><span class="hidden sm:inline">ค้นหาและขอเอกสาร</span></span>
+            <span class="pubnav-desc hidden truncate text-xs sm:block">ดูรายการเอกสาร · ขอไฟล์ PDF ทางอีเมล</span>
+          </span>
+          <span class="pubnav-here hidden text-[11px] font-medium sm:inline">หน้านี้</span>
+        </a>
+        <a href="submit.html" class="pubnav">
+          <span class="pubnav-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="h-5 w-5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg></span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold leading-tight sm:truncate sm:text-[15px]"><span class="whitespace-nowrap sm:hidden">ส่งเอกสาร</span><span class="hidden sm:inline">ส่งเอกสารเข้าระบบ</span></span>
+            <span class="pubnav-desc hidden truncate text-xs sm:block">สำหรับผู้จัดทำ · ส่งไฟล์ให้ตรวจและจัดเก็บ</span>
+          </span>
+          <span class="pubnav-go"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor" class="h-4 w-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></span>
+        </a>
+      </div>
+    </nav>
   </header>
 
   <main class="mx-auto max-w-6xl px-4 py-6 pb-28 sm:py-8">
@@ -85,9 +105,9 @@
     </div>
   </div>
 
-  <script src="assets/js/config.js"></script>
-  <script src="assets/js/common.js"></script>
-  <script src="assets/js/api.js"></script>
-  <script src="assets/js/library.js"></script>
+  <script src="assets/js/config.js?v=bc79022e"></script>
+  <script src="assets/js/common.js?v=8f419ac9"></script>
+  <script src="assets/js/api.js?v=e98a2462"></script>
+  <script src="assets/js/library.js?v=e4e1ecb7"></script>
 </body>
 </html>

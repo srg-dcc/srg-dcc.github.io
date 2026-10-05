@@ -3,7 +3,10 @@
   "private": true,
   "description": "DCC — Document Control Center (frontend build tools)",
   "scripts": {
-    "build:css": "tailwindcss -c tailwind.config.js -i assets/css/tailwind.src.css -o assets/css/tailwind.css --minify && node tools/build-dark.js"
+    "build": "npm run build:css && npm run stamp",
+    "build:css": "tailwindcss -c tailwind.config.js -i assets/css/tailwind.src.css -o assets/css/tailwind.css --minify && node tools/build-dark.js",
+    "stamp": "node tools/stamp.js",
+    "check": "node tools/stamp.js --check"
   },
   "devDependencies": {
     "tailwindcss": "3.4.17"
