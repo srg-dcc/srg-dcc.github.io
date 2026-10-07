@@ -165,9 +165,19 @@ const MockAPI = (() => {
   const files = () => storageGet(FILE_KEY, {});
   const log = (db, action, docCode, rev, detail) => db.logs.push({ time: now(), action, docCode, rev, detail });
 
-  function checkPdf(file) {
-    if (fileExt(file.name) !== 'pdf') fail('รับเฉพาะไฟล์ PDF เท่านั้น');
-    if (String(file.base64 || '').slice(0, 5) !== 'JVBER') fail('ไฟล์นี้ไม่ใช่ PDF ที่ถูกต้อง');
+  const SIGS = { pdf: ['JVBER'], docx: ['UEsD'], xlsx: ['UEsD'], pptx: ['UEsD'], doc: ['0M8R4KGx'], xls: ['0M8R4KGx'], ppt: ['0M8R4KGx'], jpg: ['/9j/'], jpeg: ['/9j/'], png: ['iVBORw0K'] };
+  function checkFile(file) {
+    const ext = fileExt(file.name);
+    if (!ALLOWED_EXT.includes(ext)) fail('ไม่รองรับไฟล์ประเภทนี้ (รับ PDF, Word, Excel, PowerPoint และรูปภาพ)');
+    if (!SIGS[ext].some((sig) => String(file.base64 || '').startsWith(sig))) fail(`ไฟล์นี้ไม่ตรงกับนามสกุล .${ext} หรือไฟล์เสียหาย ลองเปิดไฟล์แล้วบันทึก (Save As) ใหม่ก่อนส่ง`);
+  }
+  const TRASH_DAYS = 30;
+  const live = (db) => db.docs.filter((d) => d.status !== 'Deleted');
+  function purgeExpired(db) {
+    const cutoff = Date.now() - TRASH_DAYS * 86400000;
+    const n = db.docs.length;
+    db.docs = db.docs.filter((d) => !(d.status === 'Deleted' && d.deletedAt && new Date(d.deletedAt).getTime() < cutoff));
+    if (db.docs.length < n) log(db, 'PURGE', '', '', `ลบถาวรอัตโนมัติ ${n - db.docs.length} รายการ`);
   }
 
   function putFile(file) {
@@ -183,7 +193,7 @@ const MockAPI = (() => {
   function makeBackup(db, kind, keepId) {
     const t = now();
     const b = {
-      id: uuid(), name: `DCC Backup ${t.slice(0, 16).replace('T', ' ')} (${BACKUP_KINDS[kind]})`, kind, docs: String(db.docs.length), createdAt: t,
+      id: uuid(), name: `DCC Backup ${t.slice(0, 16).replace('T', ' ')} (${BACKUP_KINDS[kind]})`, kind, docs: String(live(db).length), createdAt: t,
       data: JSON.parse(JSON.stringify({ docs: db.docs, subs: db.subs, options: db.options, requests: db.requests })),
     };
     const list = [b, ...storageGet(BACKUP_KEY, [])].filter((x, i) => i < BACKUP_KEEP || x.id === keepId);
@@ -217,7 +227,7 @@ const MockAPI = (() => {
   }
 
   function recalc(db, code) {
-    const list = db.docs.filter((d) => d.docCode === code);
+    const list = live(db).filter((d) => d.docCode === code);
     if (!list.length) return [];
     const max = Math.max(...list.map((d) => Number(d.rev)));
     const replaced = [];
@@ -233,7 +243,7 @@ const MockAPI = (() => {
   }
 
   function dupCheck(db, d, exceptId) {
-    if (db.docs.some((x) => x.docCode === d.docCode && x.rev === d.rev && x.id !== exceptId)) {
+    if (live(db).some((x) => x.docCode === d.docCode && x.rev === d.rev && x.id !== exceptId)) {
       fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
     }
   }
@@ -257,7 +267,7 @@ const MockAPI = (() => {
     listPublic() {
       const db = load();
       return {
-        documents: db.docs.map((d) => ({ id: d.id, docCode: d.docCode, docType: d.docType, dept: d.dept, docNo: d.docNo, rev: d.rev, title: d.title, effectiveDate: d.effectiveDate, author: d.author, status: d.status })),
+        documents: live(db).map((d) => ({ id: d.id, docCode: d.docCode, docType: d.docType, dept: d.dept, docNo: d.docNo, rev: d.rev, title: d.title, effectiveDate: d.effectiveDate, author: d.author, status: d.status })),
         options: db.options,
       };
     },
@@ -276,7 +286,7 @@ const MockAPI = (() => {
       const ids = [...new Set((req.docIds || []).map(String))];
       if (!ids.length) fail('กรุณาเลือกเอกสารอย่างน้อย 1 รายการ');
       if (ids.length > 20) fail('ขอได้ครั้งละไม่เกิน 20 รายการ');
-      const picked = ids.map((id) => db.docs.find((d) => d.id === id));
+      const picked = ids.map((id) => live(db).find((d) => d.id === id));
       if (picked.some((d) => !d)) fail('มีเอกสารบางรายการไม่อยู่ในระบบแล้ว กรุณาโหลดหน้าใหม่');
       if (db.requests.filter((r) => r.status === 'Pending' && r.email === email).length >= 5) fail('อีเมลนี้มีคำขอที่รอดำเนินการอยู่หลายรายการ กรุณารอผลก่อน');
       const refNo = `REQ-${now().slice(2, 10).replace(/-/g, '')}-${uuid().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
@@ -302,7 +312,7 @@ const MockAPI = (() => {
       if (!r) fail('ไม่พบคำขอ');
       if (r.status !== 'Pending') fail('คำขอนี้ดำเนินการไปแล้ว');
       const ids = JSON.parse(r.docIds || '[]');
-      const picked = ids.map((id) => db.docs.find((d) => d.id === id)).filter(Boolean);
+      const picked = ids.map((id) => live(db).find((d) => d.id === id)).filter(Boolean);
       if (!picked.length) fail('เอกสารในคำขอนี้ถูกลบออกจากระบบแล้ว กรุณาปฏิเสธคำขอ');
       Object.assign(r, { status: 'Approved', reviewedAt: now(), reviewNote: String(req.note || '').trim(), sentCount: String(picked.length) });
       log(db, 'SEND', picked.length === 1 ? picked[0].docCode : '', picked.length === 1 ? picked[0].rev : '', `ส่งอีเมลถึง ${r.name} (${r.dept}) ${picked.length} ไฟล์ (โหมดทดลอง: ไม่ได้ส่งจริง)`);
@@ -367,8 +377,8 @@ const MockAPI = (() => {
       const d = validateDoc(db, req.data || {}, true);
       if (!String(req.data.submitter || '').trim()) fail('กรุณาระบุชื่อผู้ส่ง');
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
-      checkPdf(req.file);
-      if (db.docs.some((x) => x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
+      checkFile(req.file);
+      if (live(db).some((x) => x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} มีอยู่ในระบบแล้ว`);
       if (db.subs.filter((x) => x.status === 'Pending').length >= 100) fail('มีเอกสารรอตรวจสอบจำนวนมาก ระบบปิดรับชั่วคราว กรุณาติดต่อผู้ดูแลเอกสาร');
       if (db.subs.some((x) => x.status === 'Pending' && x.docCode === d.docCode && x.rev === d.rev)) fail(`เอกสาร ${d.docCode} Rev.${d.rev} ถูกส่งมาแล้วและกำลังรอตรวจสอบ`);
       const refNo = `SUB-${now().slice(2, 10).replace(/-/g, '')}-${uuid().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
@@ -465,7 +475,7 @@ const MockAPI = (() => {
       const db = load();
       const d = validateDoc(db, req.data || {});
       if (!req.file || !req.file.name) fail('กรุณาแนบไฟล์');
-      checkPdf(req.file);
+      checkFile(req.file);
       dupCheck(db, d);
       const t = now();
       const doc = {
@@ -482,8 +492,8 @@ const MockAPI = (() => {
     updateDocument(req) {
       auth(req);
       const db = load();
-      const doc = db.docs.find((x) => x.id === req.id);
-      if (!doc) fail('ไม่พบเอกสาร');
+      const doc = live(db).find((x) => x.id === req.id);
+      if (!doc) fail('ไม่พบเอกสาร (ถ้าอยู่ในถังขยะ ให้กู้คืนก่อนแก้ไข)');
       const d = validateDoc(db, req.data || {});
       dupCheck(db, d, doc.id);
       const oldCode = doc.docCode;
@@ -499,11 +509,40 @@ const MockAPI = (() => {
     deleteDocument(req) {
       auth(req);
       const db = load();
-      const i = db.docs.findIndex((x) => x.id === req.id);
-      if (i < 0) fail('ไม่พบเอกสาร');
-      const [doc] = db.docs.splice(i, 1);
+      const doc = live(db).find((x) => x.id === req.id);
+      if (!doc) fail('ไม่พบเอกสาร');
+      Object.assign(doc, { status: 'Deleted', deletedAt: now(), updatedAt: now() });
       recalc(db, doc.docCode);
-      log(db, 'DELETE', doc.docCode, doc.rev, 'ลบเอกสาร');
+      log(db, 'DELETE', doc.docCode, doc.rev, 'ย้ายไปถังขยะ');
+      purgeExpired(db);
+      save(db);
+      return true;
+    },
+
+    restoreDocument(req) {
+      auth(req);
+      const db = load();
+      const doc = db.docs.find((x) => x.id === req.id && x.status === 'Deleted');
+      if (!doc) fail('ไม่พบเอกสารนี้ในถังขยะ');
+      if (live(db).some((x) => x.docCode === doc.docCode && x.rev === doc.rev)) {
+        fail(`ในระบบมี ${doc.docCode} Rev.${doc.rev} อยู่แล้ว (เพิ่มเข้ามาใหม่หลังจากลบ) จึงกู้คืนไม่ได้ ถ้าต้องการฉบับนี้ ให้ลบฉบับที่อยู่ในระบบก่อน`);
+      }
+      Object.assign(doc, { status: '', deletedAt: '', updatedAt: now() });
+      recalc(db, doc.docCode);
+      log(db, 'UNDELETE', doc.docCode, doc.rev, 'กู้คืนจากถังขยะ');
+      save(db);
+      return { document: doc };
+    },
+
+    purgeDocument(req) {
+      auth(req);
+      const db = load();
+      const doc = db.docs.find((x) => x.id === req.id && x.status === 'Deleted');
+      if (!doc) fail('ไม่พบเอกสารนี้ในถังขยะ');
+      db.docs = db.docs.filter((x) => x !== doc);
+      const all = files();
+      if (doc.fileId && all[doc.fileId]) { delete all[doc.fileId]; storageSet(FILE_KEY, all); }
+      log(db, 'PURGE', doc.docCode, doc.rev, 'ลบถาวร');
       save(db);
       return true;
     },
@@ -524,7 +563,7 @@ const MockAPI = (() => {
     shareFile(req) {
       auth(req);
       const db = load();
-      const doc = db.docs.find((d) => d.id === req.id);
+      const doc = live(db).find((d) => d.id === req.id);
       if (!doc) fail('ไม่พบเอกสาร');
       log(db, 'SHARE', doc.docCode, doc.rev, 'สร้างลิงก์แชร์');
       save(db);
@@ -562,7 +601,7 @@ const MockAPI = (() => {
         const fn = actions[req.action];
         if (!fn) fail('ไม่รู้จักคำสั่ง ' + req.action);
         const data = fn(req);
-        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup'];
+        const withState = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup', 'restoreDocument', 'purgeDocument'];
         return { ok: true, data, state: withState.includes(req.action) ? actions.bootstrap(req) : undefined };
       } catch (e) {
         return { ok: false, error: e.message, code: e.code || 'ERROR' };

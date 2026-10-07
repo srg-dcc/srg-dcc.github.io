@@ -65,7 +65,7 @@ function optionList(kind) {
   return Object.entries(obj).map(([code, v]) => ({ kind, code, ...v }));
 }
 
-const ALLOWED_EXT = ['pdf']; // รับเฉพาะ PDF (Backend ตรวจซ้ำอีกชั้น)
+const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png']; // Backend ตรวจเนื้อไฟล์ซ้ำอีกชั้น
 const DOC_NO_RE = /^\d{2,3}(\.\d{2,3})?$/;
 
 /* ---------- รหัสเอกสาร ---------- */
@@ -331,7 +331,7 @@ function base64ToBlob(b64, mime) {
 
 function validateFile(file) {
   if (!file) return 'กรุณาเลือกไฟล์';
-  if (!ALLOWED_EXT.includes(fileExt(file.name))) return 'รับเฉพาะไฟล์ PDF เท่านั้น กรุณาแปลงไฟล์เป็น PDF ก่อนส่ง';
+  if (!ALLOWED_EXT.includes(fileExt(file.name))) return 'ไม่รองรับไฟล์ประเภทนี้ (รับ PDF, Word, Excel, PowerPoint และรูปภาพ)';
   const max = (window.APP_CONFIG && APP_CONFIG.MAX_FILE_MB) || 25;
   if (file.size > max * 1024 * 1024) return `ไฟล์ใหญ่เกินไป (สูงสุด ${max} MB)`;
   return '';
@@ -440,7 +440,7 @@ function dropZoneHtml(id, hint = '') {
     <div class="dz-empty">
       <div class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-teal-600 shadow-sm ring-1 ring-slate-200">${icon('upload')}</div>
       <p class="text-sm font-medium text-slate-700">ลากไฟล์มาวาง หรือ <span class="text-teal-600">คลิกเพื่อเลือกไฟล์</span></p>
-      <p class="mt-1 text-xs text-slate-400">เฉพาะไฟล์ PDF · ไม่เกิน ${max} MB</p>
+      <p class="mt-1 text-xs text-slate-400">PDF, Word, Excel, PowerPoint, รูปภาพ · ไม่เกิน ${max} MB</p>
       ${hint ? `<p class="mt-2 text-xs text-slate-500">${hint}</p>` : ''}
     </div>
     <div class="dz-file hidden w-full items-center gap-3 text-left"></div>

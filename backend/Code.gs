@@ -29,7 +29,9 @@ const APP = {
   ADMIN_ALERTS_PER_HOUR: 30,   // จำกัดอีเมลแจ้งเตือนผู้ดูแล กันอีเมลท่วม
   BACKUP_KEEP: 8,              // เก็บชุดสำรองข้อมูลย้อนหลังกี่ชุด (ชุดเก่ากว่านั้นย้ายไปถังขยะอัตโนมัติ)
   BACKUP_HOUR: 2,              // สำรองอัตโนมัติทุกวันจันทร์ ช่วงเวลา 02:00-03:00 น.
+  TRASH_DAYS: 30,              // เอกสารที่ลบ พักในถังขยะกี่วันก่อนลบถาวร
 };
+const TRASH_FOLDER = '05 ถังขยะ (Trash)';
 
 // จำกัดความยาวข้อความแต่ละช่อง (กันข้อมูลขยะ/เกินขนาด cell ของ Sheets)
 const MAX_LEN = { title: 200, author: 100, submitter: 100, contact: 150, note: 2000, reason: 1000, fileName: 255, name: 100, th: 100, email: 120, purpose: 500 };
@@ -56,13 +58,20 @@ const DEFAULT_OPTIONS = [
   ['dept', 'ST', 'Store', 'ฝ่ายคลังสินค้า', ''],
 ];
 const COLORS = ['indigo', 'sky', 'teal', 'amber', 'rose', 'violet', 'emerald', 'orange', 'pink', 'lime', 'cyan', 'slate'];
-const ALLOWED_EXT = ['pdf']; // รับเฉพาะไฟล์ PDF
+const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'];
+// ส่วนหัวของไฟล์จริง (base64) แต่ละชนิด — กันการเปลี่ยนนามสกุลหลอก เช่น ไฟล์โปรแกรม/HTML ตั้งชื่อเป็น .pdf
+const FILE_SIGNATURES = {
+  pdf: ['JVBER'],              // %PDF
+  docx: ['UEsD'], xlsx: ['UEsD'], pptx: ['UEsD'],          // Office รุ่นใหม่ (ZIP)
+  doc: ['0M8R4KGx'], xls: ['0M8R4KGx'], ppt: ['0M8R4KGx'], // Office รุ่นเก่า (97-2003)
+  jpg: ['/9j/'], jpeg: ['/9j/'], png: ['iVBORw0K'],
+};
 
 const T = {
   DOCS: {
     name: 'Documents',
     headers: ['id', 'docCode', 'docType', 'dept', 'docNo', 'rev', 'title', 'effectiveDate', 'author', 'fileId', 'fileName',
-      'mimeType', 'fileSize', 'status', 'submitter', 'createdAt', 'updatedAt', 'submissionId', 'note', 'submittedAt'],
+      'mimeType', 'fileSize', 'status', 'submitter', 'createdAt', 'updatedAt', 'submissionId', 'note', 'submittedAt', 'deletedAt'],
   },
   SUBS: {
     name: 'Submissions',
@@ -102,6 +111,7 @@ function setup() {
   folder_(root, '02 เอกสารใช้งาน (Active)');
   folder_(root, '03 Rev เก่า (Obsolete)');
   folder_(root, BACKUP_FOLDER);
+  folder_(root, TRASH_FOLDER);
   if (!props.getProperty('PASSWORD_HASH')) setPassword_(APP.DEFAULT_PASSWORD);
   options_(); // สร้างค่าเริ่มต้นของแผนก/ประเภท ถ้ายังไม่มี
   Logger.log('✅ ตั้งค่าเสร็จแล้ว');
@@ -155,7 +165,7 @@ const PUBLIC_ACTIONS = {
   checkRequest: checkRequest_,
 };
 
-const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup'];
+const RETURNS_STATE = ['approveSubmission', 'rejectSubmission', 'addDocument', 'updateDocument', 'deleteDocument', 'saveOption', 'deleteOption', 'shareFile', 'approveRequest', 'rejectRequest', 'restoreBackup', 'restoreDocument', 'purgeDocument'];
 
 const ADMIN_ACTIONS = {
   bootstrap: bootstrap_,
@@ -164,6 +174,8 @@ const ADMIN_ACTIONS = {
   addDocument: addDocument_,
   updateDocument: updateDocument_,
   deleteDocument: deleteDocument_,
+  restoreDocument: restoreDocument_,
+  purgeDocument: purgeDocument_,
   getFile: getFile_,
   shareFile: shareFile_,
   changePassword: changePassword_,
@@ -257,7 +269,7 @@ function submit_(req) {
   checkFile_(req.file);
 
   return withLock_(() => {
-    if (readAll_(T.DOCS).some((x) => x.docCode === d.docCode && x.rev === d.rev)) {
+    if (liveDocs_().some((x) => x.docCode === d.docCode && x.rev === d.rev)) {
       fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' มีอยู่ในระบบแล้ว');
     }
     const pending = readAll_(T.SUBS).filter((x) => x.status === 'Pending');
@@ -366,8 +378,8 @@ function addDocument_(req) {
 function updateDocument_(req) {
   const d = validateDoc_(req.data || {});
   return withLock_(() => {
-    const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
-    if (!doc) fail_('ไม่พบเอกสาร');
+    const doc = liveDocs_().find((x) => x.id === req.id);
+    if (!doc) fail_('ไม่พบเอกสาร (ถ้าอยู่ในถังขยะ ให้กู้คืนก่อนแก้ไข)');
     dupCheck_(d, doc.id);
     const patch = Object.assign({}, d, { fileName: fileName_(d, doc.fileName), updatedAt: now_() });
     if (req.data.note !== undefined) patch.note = limit_(req.data.note, 'note');
@@ -385,16 +397,73 @@ function updateDocument_(req) {
   });
 }
 
+/* ---------- ถังขยะ: ลบแล้วพักไว้ TRASH_DAYS วัน กู้คืนได้ ---------- */
+
+function isDeleted_(d) { return d.status === 'Deleted'; }
+/** เอกสารที่ใช้งานได้ (ไม่รวมถังขยะ) */
+function liveDocs_() { return readAll_(T.DOCS).filter((d) => !isDeleted_(d)); }
+
+function trashFolder_() {
+  return folder_(rootFolder_(), TRASH_FOLDER);
+}
+
 function deleteDocument_(req) {
   return withLock_(() => {
-    const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
+    const doc = liveDocs_().find((x) => x.id === req.id);
     if (!doc) fail_('ไม่พบเอกสาร');
-    try { DriveApp.getFileById(doc.fileId).setTrashed(true); } catch (e) { /* ignore */ }
-    remove_(T.DOCS, doc._row);
-    recalcStatus_(doc.docCode);
-    log_('DELETE', doc.docCode, doc.rev, 'ลบเอกสาร');
+    try { DriveApp.getFileById(doc.fileId).moveTo(trashFolder_()); } catch (e) { /* ไม่พบไฟล์ใน Drive */ }
+    update_(T.DOCS, doc, { status: 'Deleted', deletedAt: now_(), updatedAt: now_() });
+    recalcStatus_(doc.docCode); // ถ้าลบ Rev ล่าสุด Rev ก่อนหน้าจะกลับมาเป็นฉบับใช้งาน
+    log_('DELETE', doc.docCode, doc.rev, 'ย้ายไปถังขยะ');
+    purgeExpired_();
     return true;
   });
+}
+
+function restoreDocument_(req) {
+  return withLock_(() => {
+    const doc = readAll_(T.DOCS).find((x) => x.id === req.id && isDeleted_(x));
+    if (!doc) fail_('ไม่พบเอกสารนี้ในถังขยะ');
+    if (liveDocs_().some((x) => x.docCode === doc.docCode && x.rev === doc.rev)) {
+      fail_('ในระบบมี ' + doc.docCode + ' Rev.' + doc.rev + ' อยู่แล้ว (เพิ่มเข้ามาใหม่หลังจากลบ) จึงกู้คืนไม่ได้ ถ้าต้องการฉบับนี้ ให้ลบฉบับที่อยู่ในระบบก่อน');
+    }
+    if (doc.fileId) {
+      try {
+        const f = DriveApp.getFileById(doc.fileId);
+        if (f.isTrashed()) f.setTrashed(false);
+      } catch (e) { fail_('ไม่พบไฟล์ของเอกสารนี้ใน Google Drive (อาจถูกลบถาวรแล้ว) จึงกู้คืนไม่ได้'); }
+    }
+    update_(T.DOCS, doc, { status: '', deletedAt: '', updatedAt: now_() });
+    recalcStatus_(doc.docCode); // ตั้งสถานะ Active/Rev เก่า ใหม่ และย้ายไฟล์กลับโฟลเดอร์ที่ถูกต้อง
+    log_('UNDELETE', doc.docCode, doc.rev, 'กู้คืนจากถังขยะ');
+    return { document: clean_(doc) };
+  });
+}
+
+/** ลบถาวร: เอาออกจากระบบ ไฟล์ไปอยู่ในถังขยะของ Google Drive (Google ลบทิ้งเองหลัง 30 วัน) */
+function purgeDoc_(doc) {
+  try { DriveApp.getFileById(doc.fileId).setTrashed(true); } catch (e) { /* ignore */ }
+  remove_(T.DOCS, doc._row);
+}
+
+function purgeDocument_(req) {
+  return withLock_(() => {
+    const doc = readAll_(T.DOCS).find((x) => x.id === req.id && isDeleted_(x));
+    if (!doc) fail_('ไม่พบเอกสารนี้ในถังขยะ');
+    purgeDoc_(doc);
+    log_('PURGE', doc.docCode, doc.rev, 'ลบถาวร');
+    return true;
+  });
+}
+
+/** ลบถาวรเอกสารที่อยู่ในถังขยะเกิน TRASH_DAYS วัน (ต้องเรียกภายใน withLock_) */
+function purgeExpired_() {
+  const cutoff = Utilities.formatDate(new Date(Date.now() - APP.TRASH_DAYS * 86400000), tz_(), "yyyy-MM-dd'T'HH:mm:ss");
+  const expired = readAll_(T.DOCS).filter((d) => isDeleted_(d) && d.deletedAt && d.deletedAt < cutoff)
+    .sort((a, b) => b._row - a._row); // ลบจากแถวล่างขึ้นบน เลขแถวที่เหลือจะไม่เลื่อน
+  expired.forEach((d) => purgeDoc_(d));
+  if (expired.length) log_('PURGE', '', '', 'ลบถาวรอัตโนมัติ ' + expired.length + ' รายการ (อยู่ในถังขยะเกิน ' + APP.TRASH_DAYS + ' วัน)');
+  return expired.length;
 }
 
 function getFile_(req) {
@@ -409,7 +478,7 @@ function getFile_(req) {
 }
 
 function shareFile_(req) {
-  const doc = readAll_(T.DOCS).find((x) => x.id === req.id);
+  const doc = liveDocs_().find((x) => x.id === req.id);
   if (!doc) fail_('ไม่พบเอกสาร');
   const file = DriveApp.getFileById(doc.fileId);
   try {
@@ -428,7 +497,7 @@ function shareFile_(req) {
 /** รายการเอกสารสำหรับพนักงานทั่วไป: ส่งเฉพาะข้อมูลที่จำเป็น ไม่มีลิงก์ไฟล์ */
 function listPublic_() {
   return {
-    documents: readAll_(T.DOCS).map((d) => ({
+    documents: liveDocs_().map((d) => ({
       id: d.id, docCode: d.docCode, docType: d.docType, dept: d.dept, docNo: d.docNo, rev: d.rev,
       title: d.title, effectiveDate: d.effectiveDate, author: d.author, status: d.status,
     })),
@@ -452,7 +521,7 @@ function requestFiles_(req) {
   if (uniq.length > APP.MAX_DOCS_PER_REQUEST) fail_('ขอได้ครั้งละไม่เกิน ' + APP.MAX_DOCS_PER_REQUEST + ' รายการ');
 
   return withLock_(() => {
-    const docs = readAll_(T.DOCS);
+    const docs = liveDocs_();
     const picked = uniq.map((id) => docs.find((d) => d.id === id));
     if (picked.some((d) => !d)) fail_('มีเอกสารบางรายการไม่อยู่ในระบบแล้ว กรุณาโหลดหน้าใหม่');
     const pending = readAll_(T.REQS).filter((r) => r.status === 'Pending');
@@ -485,7 +554,7 @@ function approveRequest_(req) {
     const r = readAll_(T.REQS).find((x) => x.id === req.id);
     if (!r) fail_('ไม่พบคำขอ');
     if (r.status !== 'Pending') fail_('คำขอนี้ดำเนินการไปแล้ว');
-    const docs = readAll_(T.DOCS);
+    const docs = liveDocs_();
     const picked = parseIds_(r.docIds).map((id) => docs.find((d) => d.id === id)).filter(Boolean);
     if (!picked.length) fail_('เอกสารในคำขอนี้ถูกลบออกจากระบบแล้ว กรุณาปฏิเสธคำขอ');
 
@@ -614,7 +683,10 @@ function uninstallBackup() {
 /** เรียกโดยตัวตั้งเวลา (Trigger) ทุกสัปดาห์ — ถ้าล้มเหลวจะแจ้งผู้ดูแลทางอีเมล */
 function autoBackup() {
   try {
-    withLock_(() => backup_('auto'));
+    withLock_(() => {
+      purgeExpired_();
+      backup_('auto');
+    });
   } catch (err) {
     notifyAdmin_('สำรองข้อมูลอัตโนมัติไม่สำเร็จ', '<p>สำรองข้อมูลอัตโนมัติไม่สำเร็จ: ' + escape_(err.message) + '</p><p>ลองกด "สำรองตอนนี้" ในเมนูสำรองข้อมูล</p>');
     throw err;
@@ -654,7 +726,7 @@ function backupInfo_(f) {
 /** สร้างชุดสำรอง 1 ชุด (ต้องเรียกภายใน withLock_) แล้วลบชุดเก่าที่เกินจำนวน */
 function backup_(kind, keepId) {
   SpreadsheetApp.flush();
-  const docs = readAll_(T.DOCS).length;
+  const docs = liveDocs_().length;
   const name = BACKUP_PREFIX + Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm') + ' (' + BACKUP_KINDS[kind] + ')';
   const copy = DriveApp.getFileById(db_().getId()).makeCopy(name, backupFolder_());
   copy.setDescription(JSON.stringify({ kind: kind, docs: docs }));
@@ -707,9 +779,19 @@ function replaceRows_(t, list) {
   delete READ_CACHE_[t.name];
 }
 
-/** ไฟล์ที่ข้อมูลอ้างถึงและยังต้องใช้งาน: เอกสารทุก Rev + ไฟล์ที่รอตรวจ */
-function fileRefs_(docs, subs) {
-  return docs.map((d) => d.fileId).concat(subs.filter((s) => s.status === 'Pending').map((s) => s.fileId)).filter(Boolean);
+/** ตำแหน่งที่ไฟล์ควรอยู่ตามข้อมูล: { fileId: 'trash' | 'Active:QA' | 'Obsolete:QA' | 'pending' } */
+function fileHomes_(docs, subs) {
+  const homes = {};
+  docs.forEach((d) => { if (d.fileId) homes[d.fileId] = isDeleted_(d) ? 'trash' : d.status + ':' + d.dept; });
+  subs.forEach((s) => { if (s.fileId && s.status === 'Pending') homes[s.fileId] = 'pending'; });
+  return homes;
+}
+
+function homeFolder_(home) {
+  if (home === 'trash') return trashFolder_();
+  if (home === 'pending') return folder_(rootFolder_(), '01 รอตรวจสอบ (Pending)');
+  const parts = home.split(':');
+  return statusFolder_(parts[0], parts[1]);
 }
 
 function restoreBackup_(req) {
@@ -725,23 +807,24 @@ function restoreBackup_(req) {
     });
     if (!data.OPTIONS.length) fail_('ชุดสำรองนี้ไม่มีข้อมูลการตั้งค่า อาจเสียหาย จึงไม่กู้คืน');
 
-    const inUse = {};
-    fileRefs_(readAll_(T.DOCS), readAll_(T.SUBS)).forEach((id) => { inUse[id] = true; });
+    const before = fileHomes_(readAll_(T.DOCS), readAll_(T.SUBS));
     const safety = backup_('restore', file.getId()); // สำรองข้อมูลปัจจุบันไว้ก่อน เปลี่ยนใจกู้กลับได้
     RESTORE_TABLES.forEach((k) => replaceRows_(T[k], data[k]));
 
-    // ไฟล์ที่ถูกลบหลังวันที่สำรอง → ดึงกลับจากถังขยะของ Drive (ถ้ายังไม่เกิน 30 วัน)
+    // ย้ายไฟล์ให้ตรงกับข้อมูลที่กู้คืน (เฉพาะไฟล์ที่สถานะเปลี่ยน) และดึงไฟล์ที่ถูกลบหลังวันที่สำรองกลับจากถังขยะของ Drive
     let recovered = 0;
     let missing = 0;
-    fileRefs_(data.DOCS, data.SUBS).forEach((id) => {
-      if (inUse[id]) return;
+    const after = fileHomes_(data.DOCS, data.SUBS);
+    Object.keys(after).forEach((id) => {
+      if (before[id] === after[id]) return;
       try {
         const f = DriveApp.getFileById(id);
         if (f.isTrashed()) { f.setTrashed(false); recovered++; }
+        f.moveTo(homeFolder_(after[id]));
       } catch (e) { missing++; }
     });
     log_('RESTORE', '', '', 'กู้คืนข้อมูลจาก ' + file.getName() + (recovered ? ' · ดึงไฟล์คืนจากถังขยะ ' + recovered + ' ไฟล์' : '') + (missing ? ' · ไม่พบไฟล์ ' + missing + ' ไฟล์' : ''));
-    return { restored: file.getName(), docs: data.DOCS.length, recovered: recovered, missing: missing, safety: safety.name };
+    return { restored: file.getName(), docs: data.DOCS.filter((d) => !isDeleted_(d)).length, recovered: recovered, missing: missing, safety: safety.name };
   });
 }
 
@@ -833,14 +916,14 @@ function validateDoc_(src, requireActive) {
 }
 
 function dupCheck_(d, exceptId) {
-  if (readAll_(T.DOCS).some((x) => x.docCode === d.docCode && x.rev === d.rev && x.id !== exceptId)) {
+  if (liveDocs_().some((x) => x.docCode === d.docCode && x.rev === d.rev && x.id !== exceptId)) {
     fail_('เอกสาร ' + d.docCode + ' Rev.' + d.rev + ' มีอยู่ในระบบแล้ว');
   }
 }
 
 /** ให้ Rev สูงสุดของรหัสเอกสารเป็น Active ที่เหลือเป็น Obsolete และย้ายไฟล์ให้ตรงโฟลเดอร์ */
 function recalcStatus_(code) {
-  const list = readAll_(T.DOCS).filter((d) => d.docCode === code);
+  const list = liveDocs_().filter((d) => d.docCode === code);
   if (!list.length) return [];
   const max = Math.max.apply(null, list.map((d) => Number(d.rev)));
   const replaced = [];
@@ -866,9 +949,13 @@ function fileName_(d, original) {
 function checkFile_(f) {
   if (!f || !f.name || !f.base64) fail_('กรุณาแนบไฟล์');
   const ext = (String(f.name).match(/\.([^.]+)$/) || [])[1];
-  if (!ext || ALLOWED_EXT.indexOf(ext.toLowerCase()) < 0) fail_('รับเฉพาะไฟล์ PDF เท่านั้น');
-  // ตรวจเนื้อไฟล์จริงว่าเป็น PDF (ขึ้นต้นด้วย "%PDF" = "JVBER" ใน base64) กันการเปลี่ยนนามสกุลหลอก
-  if (String(f.base64).slice(0, 5) !== 'JVBER') fail_('ไฟล์นี้ไม่ใช่ PDF ที่ถูกต้อง');
+  const e = String(ext || '').toLowerCase();
+  if (ALLOWED_EXT.indexOf(e) < 0) fail_('ไม่รองรับไฟล์ประเภทนี้ (รับ PDF, Word, Excel, PowerPoint และรูปภาพ)');
+  // ตรวจเนื้อไฟล์จริงว่าตรงกับนามสกุล
+  const head = String(f.base64).slice(0, 12);
+  if (!FILE_SIGNATURES[e].some((sig) => head.indexOf(sig) === 0)) {
+    fail_('ไฟล์นี้ไม่ตรงกับนามสกุล .' + e + ' หรือไฟล์เสียหาย ลองเปิดไฟล์แล้วบันทึก (Save As) ใหม่ก่อนส่ง');
+  }
   if (f.base64.length * 0.75 > APP.MAX_FILE_MB * 1024 * 1024) fail_('ไฟล์ใหญ่เกิน ' + APP.MAX_FILE_MB + ' MB');
 }
 

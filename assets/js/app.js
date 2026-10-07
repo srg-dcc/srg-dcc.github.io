@@ -21,7 +21,9 @@ const S = {
   backup: null,     // รายการชุดสำรอง (โหลดเมื่อเปิดหน้าสำรองข้อมูล)
   backupAt: 0,
   backupErr: '',
+  trash: [],        // เอกสารในถังขยะ (status = Deleted)
 };
+const TRASH_DAYS = 30; // ตรงกับ APP.TRASH_DAYS ใน Code.gs
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = () => $('#main');
@@ -175,7 +177,9 @@ function applyState(d, { save = true } = {}) {
   S.sig = stateSig(d);
   S.syncedAt = Date.now();
   if (save) saveCache(d);
-  S.docs = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
+  const all = (d.documents || []).map((x) => ({ ...x, submittedAt: x.submittedAt || x.createdAt })); // ข้อมูลเก่าไม่มี submittedAt
+  S.docs = all.filter((x) => x.status !== 'Deleted');
+  S.trash = all.filter((x) => x.status === 'Deleted').sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   S.subs = d.submissions || [];
   S.reqs = d.requests || [];
   S.logs = d.logs || [];
@@ -219,6 +223,9 @@ function updateBadge() {
   const rb = $('#req-badge');
   rb.textContent = r;
   rb.classList.toggle('hidden', !r);
+  const tb = $('#trash-badge');
+  tb.textContent = S.trash.length;
+  tb.classList.toggle('hidden', !S.trash.length);
   document.title = `${n + r ? `(${n + r}) ` : ''}DCC · Document Control Center`;
   $('#backup-dot').classList.toggle('hidden', !backupWarning());
 }
@@ -231,6 +238,7 @@ const VIEWS = {
   settings: { title: 'ตั้งค่าแผนกและประเภทเอกสาร', render: renderSettings },
   requests: { title: 'คำขอไฟล์', render: renderRequests },
   backup: { title: 'สำรองข้อมูล', render: renderBackup },
+  trash: { title: 'ถังขยะ', render: renderTrash },
 };
 
 function route() {
@@ -283,6 +291,8 @@ const LOG_META = {
   SEND: ['ส่งไฟล์ทางอีเมล', 'bg-emerald-50 text-emerald-600', 'send'],
   DENY: ['ปฏิเสธคำขอไฟล์', 'bg-rose-50 text-rose-500', 'x'],
   RESTORE: ['กู้คืนข้อมูล', 'bg-amber-50 text-amber-600', 'restore'],
+  UNDELETE: ['กู้คืนจากถังขยะ', 'bg-emerald-50 text-emerald-600', 'restore'],
+  PURGE: ['ลบถาวร', 'bg-rose-50 text-rose-500', 'trash'],
 };
 
 /* =============================================================
@@ -295,7 +305,7 @@ function renderDashboard() {
   const today = todayIso();
   const newThisMonth = S.docs.filter((d) => (d.createdAt || '').startsWith(month)).length;
   const obsolete = S.docs.length - active.length;
-  const storage = S.docs.reduce((a, d) => a + (Number(d.fileSize) || 0), 0);
+  const storage = S.docs.concat(S.trash).reduce((a, d) => a + (Number(d.fileSize) || 0), 0);
   const storagePct = Math.min(100, (storage / STORAGE_LIMIT) * 100);
 
   const kpi = (label, value, sub, ic, tone, action = '') => `
@@ -929,14 +939,14 @@ async function deleteDoc(id) {
   if (!d) return;
   const ok = await confirmDialog({
     title: 'ลบเอกสาร',
-    message: `ต้องการลบ <b>${escapeHtml(d.docCode)} Rev.${escapeHtml(d.rev)}</b> ใช่หรือไม่? ไฟล์จะถูกย้ายไปถังขยะของ Google Drive (กู้คืนได้ภายใน 30 วัน)`,
-    confirmText: 'ลบเอกสาร',
+    message: `ย้าย <b>${escapeHtml(d.docCode)} Rev.${escapeHtml(d.rev)}</b> ไปถังขยะใช่หรือไม่?<br>กู้คืนได้ที่เมนู <b>ถังขยะ</b> ภายใน ${TRASH_DAYS} วัน`,
+    confirmText: 'ย้ายไปถังขยะ',
     danger: true,
   });
   if (!ok) return;
   try {
     await API.call('deleteDocument', { id });
-    toast('ลบเอกสารแล้ว');
+    toast(`ย้าย ${d.docCode} Rev.${d.rev} ไปถังขยะแล้ว · กู้คืนได้ที่เมนูถังขยะ`);
     await refreshAfterSave();
   } catch (err) {
     toast(err.message, 'error');
@@ -977,7 +987,8 @@ function openChangePassword(forced = false) {
 function requestDocs(r) {
   let ids = [];
   try { ids = JSON.parse(r.docIds || '[]'); } catch (e) { /* ignore */ }
-  return ids.map((id) => S.docs.find((d) => d.id === id) || { id, missing: true });
+  return ids.map((id) => S.docs.find((d) => d.id === id)
+    || { ...(S.trash.find((d) => d.id === id) || { id }), missing: true });
 }
 
 function renderRequests() {
@@ -1029,7 +1040,7 @@ function requestCard(r) {
     <div class="mt-3 rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600"><p class="text-[11px] font-medium text-slate-400">วัตถุประสงค์</p><p class="mt-0.5 whitespace-pre-line">${escapeHtml(r.purpose)}</p></div>
     <p class="mb-1.5 mt-3 text-xs font-medium text-slate-400">เอกสารที่ขอ ${docs.length} รายการ</p>
     <ul class="space-y-1">${docs.map((d) => d.missing
-      ? '<li class="rounded-lg px-2 py-1.5 text-sm text-rose-600">เอกสารถูกลบออกจากระบบแล้ว</li>'
+      ? `<li class="rounded-lg px-2 py-1.5 text-sm text-rose-600">${d.docCode ? `${escapeHtml(d.docCode)} Rev.${escapeHtml(d.rev)} อยู่ในถังขยะ (กู้คืนก่อน ถ้าต้องการส่งฉบับนี้)` : 'เอกสารถูกลบออกจากระบบแล้ว'}</li>`
       : `<li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
           <span class="font-mono text-[13px] font-semibold text-slate-800">${escapeHtml(d.docCode)}</span><span class="font-mono text-xs text-slate-500">Rev.${escapeHtml(d.rev)}</span>
           <span class="min-w-0 flex-1 truncate text-slate-600">${escapeHtml(d.title)}</span>
@@ -1048,7 +1059,7 @@ async function approveRequest(id, btn) {
   const n = requestDocs(r).filter((d) => !d.missing).length;
   const note = await confirmDialog({
     title: 'อนุมัติและส่งไฟล์ทางอีเมล',
-    message: `ระบบจะส่งไฟล์ PDF ${n} รายการ เป็นไฟล์แนบไปที่ <b>${escapeHtml(r.email)}</b>`,
+    message: `ระบบจะส่งไฟล์ ${n} รายการ เป็นไฟล์แนบไปที่ <b>${escapeHtml(r.email)}</b>`,
     confirmText: 'ส่งอีเมล',
     input: { placeholder: 'หมายเหตุถึงผู้ขอ (ไม่บังคับ)' },
   });
@@ -1109,8 +1120,8 @@ function openQrLinks() {
     ${modalHeader('QR Code ติดโต๊ะ', 'คนที่เดินมาขอเอกสาร สแกนได้เลย ไม่ต้องแอดไลน์เพื่อส่งลิงก์')}
     <div class="p-5">
       <div class="grid gap-3 sm:grid-cols-2">
-        ${qrCard('ขอเอกสาร', 'ค้นหาเอกสาร · ขอไฟล์ PDF ทางอีเมล', siteUrl('library.html'), 'DCC-QR-request.png', 'library')}
-        ${qrCard('ส่งเอกสาร', 'ส่งไฟล์ PDF เข้าระบบให้ตรวจ', siteUrl('submit.html'), 'DCC-QR-submit.png', 'submit')}
+        ${qrCard('ขอเอกสาร', 'ค้นหาเอกสาร · ขอไฟล์ทางอีเมล', siteUrl('library.html'), 'DCC-QR-request.png', 'library')}
+        ${qrCard('ส่งเอกสาร', 'ส่งไฟล์เข้าระบบให้ตรวจ', siteUrl('submit.html'), 'DCC-QR-submit.png', 'submit')}
       </div>
       <p class="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">กด <b>พิมพ์</b> เพื่อเปิดป้ายขนาด A5 พร้อมวิธีใช้ แล้วพิมพ์ตั้งไว้ที่โต๊ะ · ถ้าคนมาขอเอกสารฉบับเจาะจง เปิดรายละเอียดเอกสารนั้นแล้วกด <b>QR ขอไฟล์นี้</b></p>
     </div>`, { size: 'max-w-2xl' });
@@ -1134,6 +1145,79 @@ function openQrDoc(id) {
         <button class="btn btn-ghost" data-action="qr-download" data-url="${escapeHtml(url)}" data-caption="${escapeHtml(caption)}" data-file="DCC-QR-${escapeHtml(d.docCode)}-Rev${escapeHtml(d.rev)}.png">${icon('download', 'h-4 w-4')}ดาวน์โหลดรูป</button>
       </div>
     </div>`, { size: 'max-w-md' });
+}
+
+/* =============================================================
+ * ถังขยะ: เอกสารที่ลบ พักไว้ TRASH_DAYS วัน กู้คืนได้
+ * ============================================================= */
+function renderTrash() {
+  const list = S.trash;
+  main().innerHTML = `
+  <div class="mb-4 flex items-start gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-800">
+    ${icon('info', 'h-5 w-5 shrink-0')}
+    <p>เอกสารที่ลบจะพักอยู่ที่นี่ <b>${TRASH_DAYS} วัน</b> กด <b>กู้คืน</b> เพื่อนำกลับเข้าระบบ ครบกำหนดแล้วระบบลบถาวรให้อัตโนมัติ
+    · เอกสารในถังขยะไม่แสดงในรายการเอกสาร และพนักงานขอไฟล์ไม่ได้</p>
+  </div>
+  <section class="card overflow-hidden">
+    <div class="border-b border-slate-100 px-5 py-4">
+      <h3 class="font-semibold text-slate-800">ถังขยะ <span class="ml-1 text-sm font-normal text-slate-400">${list.length}</span></h3>
+    </div>
+    ${list.length ? `<ul class="divide-y divide-slate-100" id="trash-list">${list.map((d) => {
+    const left = Math.max(0, TRASH_DAYS - daysSince(d.deletedAt));
+    return `<li class="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
+        <span class="shrink-0">${fileIcon(d.fileName)}</span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm"><span class="font-mono font-semibold text-slate-800">${escapeHtml(d.docCode)}</span> <span class="font-mono text-slate-500">Rev.${escapeHtml(d.rev)}</span></p>
+          <p class="truncate text-sm text-slate-600">${escapeHtml(d.title)}</p>
+          <p class="mt-0.5 text-xs text-slate-500"><span class="whitespace-nowrap">ลบเมื่อ ${formatDateTime(d.deletedAt)}</span> · <span class="whitespace-nowrap ${left <= 3 ? 'font-medium text-rose-600' : ''}">${left ? `ลบถาวรอัตโนมัติในอีก ${left} วัน` : 'จะถูกลบถาวรเร็วๆ นี้'}</span></p>
+        </div>
+        <div class="flex gap-1.5">
+          <button class="btn btn-ghost !px-3 !py-1.5 text-sm" data-action="trash-restore" data-id="${d.id}" title="นำกลับเข้าระบบ">${icon('restore', 'h-4 w-4')}กู้คืน</button>
+          <button class="icon-btn danger" data-action="trash-purge" data-id="${d.id}" title="ลบถาวร" aria-label="ลบถาวร">${icon('trash', 'h-4 w-4')}</button>
+        </div>
+      </li>`;
+  }).join('')}</ul>`
+    : `<div class="px-5 py-12 text-center">
+        <div class="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">${icon('trash')}</div>
+        <p class="text-sm text-slate-500">ถังขยะว่าง</p></div>`}
+  </section>`;
+}
+
+async function restoreDoc(id, btn) {
+  const d = S.trash.find((x) => x.id === id);
+  if (!d) return;
+  setBusy(btn, true);
+  try {
+    await API.call('restoreDocument', { id });
+    toast(`กู้คืน ${d.docCode} Rev.${d.rev} แล้ว`);
+    await refreshAfterSave();
+    // ถ้ามี Rev ใหม่กว่าอยู่แล้ว ฉบับที่กู้คืนจะเป็น Rev เก่า
+    const top = revisionsOf(d.docCode)[0];
+    if (top && top.id !== d.id) toast(`ฉบับที่กู้คืนเป็น Rev เก่า เพราะมี Rev.${top.rev} ใช้งานอยู่`, 'info');
+  } catch (err) {
+    toast(err.message, 'error');
+    setBusy(btn, false);
+  }
+}
+
+async function purgeDoc(id) {
+  const d = S.trash.find((x) => x.id === id);
+  if (!d) return;
+  const ok = await confirmDialog({
+    title: 'ลบถาวร',
+    message: `ลบ <b>${escapeHtml(d.docCode)} Rev.${escapeHtml(d.rev)}</b> ออกจากระบบถาวร กู้คืนในระบบไม่ได้อีก
+      <br>(ไฟล์จะไปอยู่ในถังขยะของ Google Drive อีก 30 วัน)`,
+    confirmText: 'ลบถาวร',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await API.call('purgeDocument', { id });
+    toast(`ลบ ${d.docCode} Rev.${d.rev} ถาวรแล้ว`);
+    await refreshAfterSave();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 /* =============================================================
@@ -1222,7 +1306,7 @@ function renderBackup() {
       <ul class="mt-2 space-y-1.5">
         <li class="flex gap-2">${icon('check', 'h-4 w-4 mt-0.5 shrink-0 text-emerald-600')}รายการเอกสารทุก Rev, เอกสารรอตรวจ, คำขอไฟล์ และการตั้งค่าแผนก/ประเภท</li>
         <li class="flex gap-2">${icon('check', 'h-4 w-4 mt-0.5 shrink-0 text-emerald-600')}ใช้พื้นที่น้อยมาก (ชุดละไม่ถึง 1–2 MB)</li>
-        <li class="flex gap-2">${icon('info', 'h-4 w-4 mt-0.5 shrink-0 text-slate-400')}ไม่รวมไฟล์ PDF เพราะไฟล์อยู่ใน Google Drive อยู่แล้ว ไฟล์ที่ลบไปอยู่ในถังขยะ 30 วัน และระบบดึงคืนให้ตอนกู้คืน</li>
+        <li class="flex gap-2">${icon('info', 'h-4 w-4 mt-0.5 shrink-0 text-slate-400')}ไม่รวมตัวไฟล์เอกสาร เพราะไฟล์อยู่ใน Google Drive อยู่แล้ว ไฟล์ที่ลบไปอยู่ในถังขยะ 30 วัน และระบบดึงคืนให้ตอนกู้คืน</li>
       </ul>
     </section>
   </div>
@@ -1323,16 +1407,17 @@ function optionCard(kind) {
     <ul class="divide-y divide-slate-100">
       ${list.map((o) => {
         const used = S.docs.filter((d) => d[m.field] === o.code).length;
+        const inTrash = S.trash.filter((d) => d[m.field] === o.code).length;
         const pend = S.subs.filter((d) => d.status === 'Pending' && d[m.field] === o.code).length;
         return `<li class="flex items-center gap-3 px-5 py-3 ${o.active ? '' : 'bg-slate-50/70'}">
           <span class="w-12 shrink-0">${kind === 'type' ? typeBadge(o.code) : `<span class="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-700">${escapeHtml(o.code)}</span>`}</span>
           <div class="min-w-0 flex-1 ${o.active ? '' : 'opacity-60'}">
             <p class="truncate text-sm font-medium text-slate-700">${escapeHtml(o.name)}${o.active ? '' : ' <span class="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">ปิดใช้งาน</span>'}</p>
-            <p class="truncate text-xs text-slate-400">${escapeHtml(o.th || '-')} · ${used} เอกสาร${pend ? ` · รอตรวจ ${pend}` : ''}</p>
+            <p class="truncate text-xs text-slate-400">${escapeHtml(o.th || '-')} · ${used} เอกสาร${pend ? ` · รอตรวจ ${pend}` : ''}${inTrash ? ` · ในถังขยะ ${inTrash}` : ''}</p>
           </div>
           <button class="switch ${o.active ? 'on' : ''}" role="switch" aria-checked="${o.active}" title="${o.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}" data-action="opt-toggle" data-kind="${kind}" data-code="${escapeHtml(o.code)}"><span></span></button>
           <button class="icon-btn" data-action="opt-edit" data-kind="${kind}" data-code="${escapeHtml(o.code)}" title="แก้ไข">${icon('pencil', 'h-4 w-4')}</button>
-          <button class="icon-btn danger" data-action="opt-delete" data-kind="${kind}" data-code="${escapeHtml(o.code)}" title="${used + pend ? 'มีเอกสารใช้อยู่ ลบไม่ได้' : 'ลบ'}" ${used + pend ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>${icon('trash', 'h-4 w-4')}</button>
+          <button class="icon-btn danger" data-action="opt-delete" data-kind="${kind}" data-code="${escapeHtml(o.code)}" title="${used + pend + inTrash ? 'มีเอกสารใช้อยู่ ลบไม่ได้' : 'ลบ'}" ${used + pend + inTrash ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>${icon('trash', 'h-4 w-4')}</button>
         </li>`;
       }).join('')}
     </ul>
@@ -1418,6 +1503,8 @@ async function onAction(e) {
     case 'open-sidebar': toggleSidebar(true); break;
     case 'close-sidebar': toggleSidebar(false); break;
     case 'backup-now': backupNow(el); break;
+    case 'trash-restore': restoreDoc(id, el); break;
+    case 'trash-purge': purgeDoc(id); break;
     case 'backup-restore': restoreBackup(id); break;
     case 'refresh':
       if (S.view === 'backup') loadBackups(); else S.backupAt = 0;

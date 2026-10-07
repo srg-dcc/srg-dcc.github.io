@@ -1,7 +1,7 @@
 /* =============================================================
  * library.js — หน้ารายการเอกสารสำหรับพนักงานทั่วไป
  * ดูรายการได้อย่างเดียว ถ้าต้องการไฟล์ต้องส่งคำขอให้ผู้ดูแลอนุมัติ
- * แล้วระบบจะส่งไฟล์ PDF ให้ทางอีเมล
+ * แล้วระบบจะส่งไฟล์ให้ทางอีเมล
  * ============================================================= */
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -208,7 +208,7 @@ function openRequestForm() {
   const deptOpts = Object.entries(DEPTS).filter(([k, v]) => v.active || k === saved.dept)
     .map(([k, v]) => `<option value="${k}" ${k === saved.dept ? 'selected' : ''}>${k} – ${escapeHtml(v.th)}</option>`).join('');
   const root = openModal(`
-    ${modalHeader('ขอไฟล์เอกสาร', `${docs.length} รายการ · ระบบจะส่งไฟล์ PDF ให้ทางอีเมลเมื่อผู้ดูแลอนุมัติ`)}
+    ${modalHeader('ขอไฟล์เอกสาร', `${docs.length} รายการ · ระบบจะส่งไฟล์ให้ทางอีเมลเมื่อผู้ดูแลอนุมัติ`)}
     <form class="p-5" novalidate>
       <ul class="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-2">
         ${docs.map((d) => `<li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm">
