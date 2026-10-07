@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DCC · โหมดทดลอง</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d9488'/%3E%3Cpath d='M11 8h7l5 5v11a1 1 0 0 1-1 1H11a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/tailwind.css?v=0e506b48">
+  <link rel="stylesheet" href="assets/css/dark.css?v=9942ec64">
+  <script>
+    // ตั้งธีมก่อนหน้าเว็บแสดง (กันจอกระพริบ): ใช้ค่าที่ผู้ใช้เลือกไว้ ถ้าไม่เคยเลือกให้ตามระบบ
+    (function () {
+      var t = null;
+      try { t = JSON.parse(localStorage.getItem('dc_theme')); } catch (e) {}
+      var dark = t ? t === 'dark' : window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/css/app.css?v=0adceb91">
+</head>
+<body class="min-h-screen antialiased">
+
+  <!-- ============ หน้าเข้าสู่ระบบ ============ -->
+  <section id="login-view" class="relative hidden min-h-screen items-center justify-center px-4 py-10">
+    <div class="absolute right-4 top-4"><button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button></div>
+    <div class="w-full max-w-sm">
+      <div class="mb-6 text-center">
+        <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-sm" data-icon="folder"></div>
+        <h1 class="text-xl font-semibold text-slate-800">DCC</h1>
+        <p class="mt-1 text-sm text-slate-500">Document Control Center</p>
+      </div>
+      <form id="login-form" class="card p-6">
+        <label class="block"><span class="label">รหัสผ่านผู้ดูแลระบบ</span>
+          <input type="password" name="password" class="input" placeholder="••••••••" required autocomplete="current-password" autofocus></label>
+        <button type="submit" class="btn btn-primary mt-4 w-full">เข้าสู่ระบบ</button>
+        <p id="demo-hint" class="mt-4 hidden rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">โหมดทดลอง: รหัสผ่านเริ่มต้นคือ <b>admin1234</b></p>
+      </form>
+      <p class="mt-5 text-center text-sm text-slate-500">ต้องการเอกสาร? <a href="library.html" class="font-medium text-teal-600 hover:underline">ดูรายการเอกสาร</a> · <a href="submit.html" class="font-medium text-teal-600 hover:underline">ส่งเอกสาร</a></p>
+    </div>
+  </section>
+
+  <!-- ============ แอปหลัก ============ -->
+  <div id="app-view" class="hidden">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-slate-200/70 bg-white transition-transform lg:translate-x-0">
+      <div class="flex h-16 items-center gap-2.5 px-5">
+        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-600 text-white" data-icon="folder"></div>
+        <div>
+          <p class="text-sm font-semibold leading-tight text-slate-800">DCC</p>
+          <p class="text-xs leading-tight text-slate-400">Document Control Center</p>
+        </div>
+      </div>
+      <div class="px-3 pb-2">
+        <button class="btn btn-primary w-full" data-action="add-doc"><span data-icon="plus" data-cls="h-4 w-4"></span>เพิ่มเอกสาร</button>
+      </div>
+      <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+        <a href="#/dashboard" class="nav-link" data-nav="dashboard"><span data-icon="grid"></span>ภาพรวม</a>
+        <a href="#/documents" class="nav-link" data-nav="documents"><span data-icon="folder"></span>เอกสารทั้งหมด</a>
+        <a href="#/pending" class="nav-link" data-nav="pending"><span data-icon="inbox"></span><span class="flex-1">รอตรวจสอบ</span><span id="pending-badge" class="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"></span></a>
+        <a href="#/requests" class="nav-link" data-nav="requests"><span data-icon="send"></span><span class="flex-1">คำขอไฟล์</span><span id="req-badge" class="hidden rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700"></span></a>
+        <a href="#/trash" class="nav-link" data-nav="trash"><span data-icon="trash"></span><span class="flex-1">ถังขยะ</span><span id="trash-badge" class="hidden rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600"></span></a>
+        <a href="#/settings" class="nav-link" data-nav="settings"><span data-icon="cog"></span>ตั้งค่าแผนก/ประเภท</a>
+        <a href="#/backup" class="nav-link" data-nav="backup"><span data-icon="archive"></span><span class="flex-1">สำรองข้อมูล</span><span id="backup-dot" class="hidden h-2 w-2 rounded-full bg-amber-500" title="ยังไม่ได้เปิดสำรองอัตโนมัติ"></span></a>
+        <p class="px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">ลิงก์สำหรับพนักงาน</p>
+        <div class="flex items-center gap-1">
+          <a href="library.html" target="_blank" class="nav-link flex-1"><span data-icon="folder"></span>หน้ารายการเอกสาร</a>
+          <button class="icon-btn" data-action="copy-library-link" title="คัดลอกลิงก์หน้ารายการเอกสาร" aria-label="คัดลอกลิงก์หน้ารายการเอกสาร"><span data-icon="link" data-cls="h-4 w-4"></span></button>
+        </div>
+        <div class="flex items-center gap-1">
+          <a href="submit.html" target="_blank" class="nav-link flex-1"><span data-icon="upload"></span>หน้าส่งเอกสาร</a>
+          <button class="icon-btn" data-action="copy-submit-link" title="คัดลอกลิงก์หน้าส่งเอกสาร" aria-label="คัดลอกลิงก์หน้าส่งเอกสาร"><span data-icon="link" data-cls="h-4 w-4"></span></button>
+        </div>
+        <button class="nav-link w-full" data-action="qr-links"><span data-icon="qr"></span>QR Code ติดโต๊ะ</button>
+      </nav>
+      <div class="border-t border-slate-100 p-3 space-y-1">
+        <div id="demo-banner" class="mb-2 hidden rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+          <p class="font-semibold">โหมดทดลอง</p>
+          <p class="mt-0.5 text-amber-700">ข้อมูลเก็บใน Browser นี้เท่านั้น ตั้งค่า API_URL เพื่อเชื่อม Google Drive</p>
+          <button class="mt-2 font-medium underline" data-action="reset-demo">รีเซ็ตข้อมูลตัวอย่าง</button>
+        </div>
+        <button class="nav-link w-full" data-action="change-password"><span data-icon="key"></span>เปลี่ยนรหัสผ่าน</button>
+        <button class="nav-link w-full hover:!text-rose-600" data-action="logout"><span data-icon="logout"></span>ออกจากระบบ</button>
+      </div>
+    </aside>
+    <div id="sidebar-backdrop" class="fixed inset-0 z-30 hidden bg-slate-900/20 lg:hidden" data-action="close-sidebar"></div>
+
+    <!-- Main -->
+    <div class="lg:pl-64">
+      <header class="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200/70 bg-white/85 px-4 backdrop-blur sm:px-6">
+        <button class="icon-btn lg:hidden" data-action="open-sidebar" aria-label="เมนู"><span data-icon="menu"></span></button>
+        <h2 id="page-title" class="flex-1 truncate text-base font-semibold text-slate-800">ภาพรวม</h2>
+        <button class="icon-btn" data-theme-toggle title="สลับโหมดมืด/สว่าง" aria-label="สลับโหมดมืด/สว่าง"></button>
+        <span id="sync-status" class="hidden text-xs text-slate-400 sm:inline" aria-live="polite"></span>
+        <button class="icon-btn" data-action="refresh" title="โหลดข้อมูลใหม่" aria-label="โหลดข้อมูลใหม่"><span data-icon="refresh"></span></button>
+      </header>
+      <main id="main" class="mx-auto max-w-7xl px-4 py-6 sm:px-6"></main>
+    </div>
+  </div>
+
+  <!-- Loading screen -->
+  <div id="boot" class="fixed inset-0 z-[80] flex items-center justify-center page-bg">
+    <span class="spinner h-6 w-6 text-teal-600"></span>
+  </div>
+
+  <script src="assets/js/config.js?v=bc79022e"></script>
+  <script>
+    // หน้าทดลอง: ไม่เชื่อมต่อ Google ใช้ข้อมูลตัวอย่างใน Browser นี้เท่านั้น (รหัสผ่าน admin1234)
+    window.APP_CONFIG = Object.assign({}, window.APP_CONFIG, { API_URL: '' });
+  </script>
+  <script src="assets/js/common.js?v=9eae49bc"></script>
+  <script src="assets/js/api.js?v=bc78d890"></script>
+  <script src="assets/vendor/qrcode.js?v=4c79be16"></script>
+  <script src="assets/js/qr.js?v=512ecb81"></script>
+  <script src="assets/js/app.js?v=dccb4a48"></script>
+</body>
+</html>
